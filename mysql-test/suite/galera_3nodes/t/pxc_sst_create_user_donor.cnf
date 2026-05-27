@@ -1,0 +1,7 @@
+!include ../galera_3nodes.cnf
+
+[mysqld]
+wsrep_sst_method=xtrabackup-v2
+
+[ENV]
+galera_cluster_size=3

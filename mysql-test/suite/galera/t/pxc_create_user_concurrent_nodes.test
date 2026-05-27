@@ -1,0 +1,91 @@
+# ==== Purpose ====
+#
+# Regression test for concurrent CREATE USER on two Galera nodes (different
+# user names on each node). A 2021 report described possible deadlocks when
+# issuing CREATE USER from two nodes without restarting either server first.
+# The original ticket also mentioned CREATE USER during SST; overlapping ACL
+# TOI from multiple nodes is the same class of lock-order risk.
+#
+# This test fires CREATE USER from node_1 and node_2 at the same time for many
+# iterations. If a deadlock remains, mysqltest will hang until the suite
+# timeout and the run will fail.
+#
+# ==== References ====
+#
+# Customer report: concurrent CREATE USER on two PXC nodes (Zendesk follow-up).
+
+--source include/galera_cluster.inc
+--source include/count_sessions.inc
+
+--let $pxc_create_user_iters = 100
+--let $pxc_create_user_expected = 200
+
+# Concurrent ACL TOI can still hit certification conflicts (multi-master abort /
+# "Fail to replicate") on some iterations. Suppress those log lines until the
+# server no longer emits them for this workload; user account rows must still
+# converge on all nodes (checked below).
+CALL mtr.add_suppression(".*aborted due to multi-master conflict.*");
+CALL mtr.add_suppression(".*Fail to replicate: CREATE USER.*");
+
+--connection node_2
+CALL mtr.add_suppression(".*aborted due to multi-master conflict.*");
+CALL mtr.add_suppression(".*Fail to replicate: CREATE USER.*");
+
+--connection node_1
+--echo # Stress: concurrent CREATE USER on both nodes (100 iterations per test file default)
+
+--disable_query_log
+--disable_result_log
+
+--let $i = 1
+while ($i <= $pxc_create_user_iters)
+{
+  --let $stmt_a= CREATE USER 'pxccua$i'@'%' IDENTIFIED BY 'Iab3ohl5Du'
+  --let $stmt_b= CREATE USER 'pxccub$i'@'%' IDENTIFIED BY 'Iab3ohl5Du'
+
+  --connection node_1
+  --send_eval $stmt_a
+
+  --connection node_2
+  --send_eval $stmt_b
+
+  --connection node_1
+  --reap
+
+  --connection node_2
+  --reap
+
+  --inc $i
+}
+
+--enable_query_log
+--enable_result_log
+
+--connection node_1
+--let $wait_condition = SELECT COUNT(*) = $pxc_create_user_expected FROM mysql.user WHERE user LIKE 'pxccu%'
+--source include/wait_condition.inc
+
+--connection node_2
+--let $wait_condition = SELECT COUNT(*) = $pxc_create_user_expected FROM mysql.user WHERE user LIKE 'pxccu%'
+--source include/wait_condition.inc
+
+--connection node_1
+SELECT COUNT(*) AS cnt FROM mysql.user WHERE user LIKE 'pxccu%';
+
+--disable_query_log
+--disable_result_log
+--let $i = 1
+while ($i <= $pxc_create_user_iters)
+{
+  --let $stmt_d= DROP USER IF EXISTS 'pxccua$i'@'%', 'pxccub$i'@'%'
+
+  --connection node_1
+  --eval $stmt_d
+
+  --inc $i
+}
+--enable_query_log
+--enable_result_log
+
+--connection node_1
+--source include/wait_until_count_sessions.inc

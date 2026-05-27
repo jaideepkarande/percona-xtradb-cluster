@@ -1,0 +1,95 @@
+# ==== Purpose ====
+#
+# Reproduce PXC-3649-style overlap: continuous CREATE USER on a donor (node_1)
+# while node_3 rejoins the cluster and requests SST (grastate.dat removed).
+# A hang or failure to reach wsrep_cluster_size=3 indicates the donor/SST vs
+# ACL TOI interaction is still present.
+#
+# ==== References ====
+#
+# PXC-3649: CREATE USER on donor during SST / internal SST GRANT vs TOI.
+
+--source include/big_test.inc
+--source include/not_valgrind.inc
+--source include/galera_cluster.inc
+--source include/count_sessions.inc
+--source include/force_restart.inc
+
+--connection node_1
+CREATE TABLE IF NOT EXISTS t_pxc3649 (f1 INT PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t_pxc3649 VALUES (1),(2),(3),(4);
+
+--connection node_3
+--echo # Stop joiner and remove grastate to force state transfer on next start
+SET SESSION wsrep_sync_wait = 0;
+--let $mysqld_name=mysqld.3
+--source include/shutdown_mysqld.inc
+--let $mysqld_name=
+--remove_file $MYSQLTEST_VARDIR/mysqld.3/data/grastate.dat
+
+--connection node_1
+SET SESSION wsrep_sync_wait = 0;
+--let $wait_condition = SELECT VARIABLE_VALUE = 2 FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size'
+--source include/wait_condition.inc
+
+--write_file $MYSQLTEST_VARDIR/tmp/pxc_sst_create_user_donor_hammer.sh
+#!/usr/bin/env bash
+set +e
+MYSQL_C="$1"
+PORT="$2"
+i=1
+while [ "$i" -le 300 ]; do
+  "$MYSQL_C" -h127.0.0.1 -P"$PORT" -uroot -e "CREATE USER IF NOT EXISTS 'pxc3649u$i'@'%' IDENTIFIED BY 'Iab3ohl5Du';" 2>/dev/null
+  sleep 0.05
+  i=$((i+1))
+done
+exit 0
+EOF
+
+--chmod 0755 $MYSQLTEST_VARDIR/tmp/pxc_sst_create_user_donor_hammer.sh
+
+--echo # Background: CREATE USER loop on donor (node_1)
+--let $command = /bin/bash
+--let $command_opt = $MYSQLTEST_VARDIR/tmp/pxc_sst_create_user_donor_hammer.sh $MYSQL $NODE_MYPORT_1
+--let $pid_file = $MYSQLTEST_VARDIR/tmp/pxc_sst_create_user_donor_hammer.pid
+--source include/start_proc_in_background.inc
+
+--echo # Restart node_3 via MTR (SST) while hammer runs on donor
+--connection node_3
+--let $_expect_file_name= $MYSQLTEST_VARDIR/tmp/mysqld.3.expect
+--source include/start_mysqld.inc
+
+SET SESSION wsrep_sync_wait = 0;
+--source include/galera_wait_ready.inc
+
+--connection node_1
+--let $wait_timeout = 300
+--let $wait_condition = SELECT VARIABLE_VALUE = 3 FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size'
+--source include/wait_condition.inc
+
+--let $pid_file = $MYSQLTEST_VARDIR/tmp/pxc_sst_create_user_donor_hammer.pid
+--source include/wait_proc_to_finish.inc
+
+--remove_file $MYSQLTEST_VARDIR/tmp/pxc_sst_create_user_donor_hammer.pid
+
+--connection node_1
+SELECT VARIABLE_VALUE AS wsrep_cluster_size FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size';
+
+--disable_query_log
+--disable_result_log
+--let $i = 1
+while ($i <= 300)
+{
+  --let $stmt_d= DROP USER IF EXISTS 'pxc3649u$i'@'%'
+  --eval $stmt_d
+  --inc $i
+}
+--enable_query_log
+--enable_result_log
+
+DROP TABLE t_pxc3649;
+
+--connection node_1
+--source include/wait_until_count_sessions.inc
+
+--remove_file $MYSQLTEST_VARDIR/tmp/pxc_sst_create_user_donor_hammer.sh

@@ -1,0 +1,8 @@
+CALL mtr.add_suppression(".*aborted due to multi-master conflict.*");
+CALL mtr.add_suppression(".*Fail to replicate: CREATE USER.*");
+CALL mtr.add_suppression(".*aborted due to multi-master conflict.*");
+CALL mtr.add_suppression(".*Fail to replicate: CREATE USER.*");
+# Stress: concurrent CREATE USER on both nodes (100 iterations per test file default)
+SELECT COUNT(*) AS cnt FROM mysql.user WHERE user LIKE 'pxccu%';
+cnt
+200

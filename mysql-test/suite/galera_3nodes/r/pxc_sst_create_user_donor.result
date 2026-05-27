@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS t_pxc3649 (f1 INT PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO t_pxc3649 VALUES (1),(2),(3),(4);
+# Stop joiner and remove grastate to force state transfer on next start
+SET SESSION wsrep_sync_wait = 0;
+SET SESSION wsrep_sync_wait = 0;
+# Background: CREATE USER loop on donor (node_1)
+# Restart node_3 via MTR (SST) while hammer runs on donor
+# restart
+SET SESSION wsrep_sync_wait = 0;
+SELECT VARIABLE_VALUE AS wsrep_cluster_size FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size';
+wsrep_cluster_size
+3
+DROP TABLE t_pxc3649;
