@@ -1,0 +1,8 @@
+!include ../galera_2nodes.cnf
+
+[mysqld]
+wsrep-applier-threads=8
+wsrep-ignore-apply-errors=0
+
+[ENV]
+galera_cluster_size = 2

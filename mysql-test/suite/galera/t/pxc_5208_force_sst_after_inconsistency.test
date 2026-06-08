@@ -1,0 +1,90 @@
+#
+# PXC-5208: Force SST after a node is restarted following an inconsistency.
+#
+# When a node is voted out of the cluster because of a data inconsistency it
+# marks its state as corrupt (grastate.dat gets uuid:-1). On the next start,
+# mysqld_safe's --wsrep-recover can resurrect a usable position from InnoDB,
+# which would allow IST and bring back the inconsistent dataset.
+#
+# The node removes grastate.dat on shutdown so that the restarted node is
+# always forced to perform a full SST, guaranteeing a consistent dataset.
+#
+# This test provokes an inconsistency on node_2, lets the cluster vote it out,
+# shuts it down and verifies that grastate.dat has been removed. The node is
+# then restarted and is expected to rejoin (via SST) with a consistent dataset.
+#
+
+--source include/galera_cluster.inc
+
+#
+# Give node_1 extra weight so it can maintain quorum as a 1-node primary
+# component after node_2 is evicted.
+#
+--connection node_1
+--disable_query_log
+SET GLOBAL wsrep_provider_options='pc.weight=2';
+CREATE TABLE t1 (f1 INTEGER PRIMARY KEY, f2 INT);
+INSERT INTO t1 VALUES (1, 0),(2, 0),(3, 0),(4, 0),(5, 0),(6, 0),(7, 0),(8, 0);
+--enable_query_log
+
+--source ../include/galera_provoke_inconsistency_on_node2.inc
+
+# The remaining node keeps a 1-node primary component.
+--connection node_1
+--let $wait_timeout = 60
+--let $members=1
+--source include/wsrep_wait_membership.inc
+--source include/galera_wait_ready.inc
+--let $cluster_size = `SELECT VARIABLE_VALUE FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size'`
+--echo node_1 wsrep_cluster_size after eviction: $cluster_size
+
+#
+# Shut node_2 down. It left due to an inconsistency, so grastate.dat must be
+# gone to force a full SST on the next start.
+#
+--connection node_2
+--disable_query_log
+SET SESSION wsrep_on=OFF;
+--enable_query_log
+--source include/shutdown_mysqld.inc
+
+--echo # Verify grastate.dat was removed on inconsistency shutdown
+--perl
+    my $grastate = "$ENV{'MYSQLTEST_VARDIR'}/mysqld.2/data/grastate.dat";
+    if (-e $grastate) {
+        die "FAIL: grastate.dat still present after inconsistency shutdown: $grastate\n";
+    }
+    print "grastate.dat removed: 1\n";
+EOF
+
+#
+# Restart node_2. With no grastate.dat it can only rejoin via SST, which
+# overwrites the inconsistent dataset and makes it consistent again.
+#
+--source include/start_mysqld.inc
+--source include/galera_wait_ready.inc
+
+# The dataset is consistent with node_1 again (SST restored the missing rows).
+--connection node_1
+--let $node_1_data = `SELECT GROUP_CONCAT(f1, ':', f2 ORDER BY f1) FROM t1`
+--connection node_2
+--let $node_2_data = `SELECT GROUP_CONCAT(f1, ':', f2 ORDER BY f1) FROM t1`
+--echo node_2 t1 after SST: $node_2_data
+--echo node_1 t1 contents: $node_1_data
+
+if ($node_1_data != $node_2_data) {
+    --die node_2 dataset is not consistent with node_1 after SST
+}
+--echo datasets consistent: 1
+
+# Cleanup
+--disable_query_log
+--connection node_1
+SET GLOBAL wsrep_provider_options='pc.weight=1';
+DROP TABLE t1;
+--source ../include/galera_inconsistency_suppressions.inc
+--connection node_2
+CALL mtr.add_suppression('Replica SQL: Could not execute Update_rows event on table test.t1; Can\'t find record in \'t1\', Error_code: 1032; handler error HA_ERR_KEY_NOT_FOUND; the event\'s source log FIRST, end_log_pos 0, Error_code: MY-001032');
+CALL mtr.add_suppression('Update_rows apply failed: 120, seqno');
+--source ../include/galera_inconsistency_suppressions.inc
+--enable_query_log

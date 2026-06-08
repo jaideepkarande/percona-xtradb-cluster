@@ -1,0 +1,7 @@
+node_1 wsrep_cluster_size after eviction: 1
+# Verify grastate.dat was removed on inconsistency shutdown
+grastate.dat removed: 1
+# restart
+node_2 t1 after SST: 1:1,2:1,3:1,4:3,5:1,6:1,7:1,8:1
+node_1 t1 contents: 1:1,2:1,3:1,4:3,5:1,6:1,7:1,8:1
+datasets consistent: 1
