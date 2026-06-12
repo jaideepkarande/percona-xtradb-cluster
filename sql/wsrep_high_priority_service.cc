@@ -100,6 +100,16 @@ static void wsrep_setup_uk_and_fk_checks(THD *thd) {
     thd->variables.option_bits &= ~OPTION_NO_FOREIGN_KEY_CHECKS;
 }
 
+/*
+  Keep wsrep applier/replayer DDL behavior deterministic across nodes.
+  Replicated CREATE TABLE statements do not stream
+  @@session.sql_generate_invisible_primary_key, so applier sessions must not
+  auto-generate a different table definition based on their stale session state.
+*/
+static inline void wsrep_setup_applier_session_vars(THD *thd) {
+  thd->variables.sql_generate_invisible_primary_key = false;
+}
+
 /****************************************************************************
                          High priority service
 *****************************************************************************/
@@ -138,6 +148,7 @@ Wsrep_high_priority_service::Wsrep_high_priority_service(THD *thd)
   thd->clear_error();
   thd->variables.transaction_isolation = ISO_READ_COMMITTED;
   thd->tx_isolation = ISO_READ_COMMITTED;
+  wsrep_setup_applier_session_vars(thd);
 
   /* From trans_begin() */
   thd->variables.option_bits |= OPTION_BEGIN;
@@ -759,6 +770,7 @@ int Wsrep_applier_service::apply_nbo_begin(const wsrep::ws_meta &ws_meta,
       replayer_thd->variables.option_bits &= ~(OPTION_BIN_LOG);
       replayer_thd->variables.option_bits |= OPTION_BIN_LOG_INTERNAL_OFF;
     }
+    wsrep_setup_applier_session_vars(replayer_thd);
 
     // Mark it as a system thread so it shows up in show processlist for wait
     // condition

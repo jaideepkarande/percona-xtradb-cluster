@@ -1,0 +1,4 @@
+!include ../galera_2nodes.cnf
+
+[mysqld]
+sql-generate-invisible-primary-key=ON
