@@ -1,0 +1,27 @@
+--source include/master-slave.inc
+
+connect (master_ddl, 127.0.0.1,root,,test,$MASTER_MYPORT,);
+connection master_ddl;
+CREATE DATABASE gipk_async_test;
+CREATE TABLE gipk_async_test.t1 (id INT NOT NULL, c VARCHAR(100)) ENGINE=InnoDB;
+
+--source include/rpl_connection_master.inc
+--source include/sync_slave_sql_with_master.inc
+
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = 'gipk_async_test' AND table_name = 't1' AND column_name = 'my_row_id';
+
+--source include/rpl_connection_slave.inc
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = 'gipk_async_test' AND table_name = 't1' AND column_name = 'my_row_id';
+
+--source include/rpl_connection_master.inc
+DROP DATABASE gipk_async_test;
+
+--source include/sync_slave_sql_with_master.inc
+
+--source include/rpl_connection_slave.inc
+disconnect master_ddl;
+--source include/rpl_end.inc

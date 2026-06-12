@@ -1,0 +1,44 @@
+--source include/master-slave.inc
+
+--source include/rpl_connection_master.inc
+SELECT @@global.sql_generate_invisible_primary_key = 1;
+
+--source include/rpl_connection_slave.inc
+SELECT @@global.sql_generate_invisible_primary_key = 1;
+
+--source include/rpl_connection_master.inc
+SET GLOBAL sql_generate_invisible_primary_key = OFF;
+SELECT @@global.sql_generate_invisible_primary_key = 0;
+
+--source include/rpl_connection_slave.inc
+SET GLOBAL sql_generate_invisible_primary_key = OFF;
+SELECT @@global.sql_generate_invisible_primary_key = 0;
+
+connect (master_ddl, 127.0.0.1,root,,test,$MASTER_MYPORT,);
+connection master_ddl;
+CREATE DATABASE gipk_async_test;
+CREATE TABLE gipk_async_test.t1 (id INT NOT NULL, c VARCHAR(100)) ENGINE=InnoDB;
+
+--source include/rpl_connection_master.inc
+--source include/sync_slave_sql_with_master.inc
+
+SELECT COUNT(*) = 0
+FROM information_schema.columns
+WHERE table_schema = 'gipk_async_test' AND table_name = 't1' AND column_name = 'my_row_id';
+
+--source include/rpl_connection_slave.inc
+SELECT COUNT(*) = 0
+FROM information_schema.columns
+WHERE table_schema = 'gipk_async_test' AND table_name = 't1' AND column_name = 'my_row_id';
+
+--source include/rpl_connection_master.inc
+DROP DATABASE gipk_async_test;
+SET GLOBAL sql_generate_invisible_primary_key = ON;
+
+--source include/sync_slave_sql_with_master.inc
+
+--source include/rpl_connection_slave.inc
+SET GLOBAL sql_generate_invisible_primary_key = ON;
+
+disconnect master_ddl;
+--source include/rpl_end.inc
