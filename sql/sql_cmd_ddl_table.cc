@@ -48,6 +48,7 @@
 #include "sql/sql_class.h"
 #include "sql/sql_data_change.h"
 #include "sql/sql_error.h"
+#include "sql/sql_gipk.h"
 #include "sql/sql_insert.h"  // Query_result_create
 #include "sql/sql_lex.h"
 #include "sql/sql_list.h"
@@ -68,6 +69,22 @@
 #ifdef WITH_WSREP
 #include "mysql/components/services/log_builtins.h"
 #include "sql/log.h"
+
+static inline void wsrep_set_create_table_gipk_pre_query(THD *thd) {
+  static constexpr const char *gipk_on_query =
+      "SET @@session.sql_generate_invisible_primary_key = 1";
+  static constexpr const char *gipk_off_query =
+      "SET @@session.sql_generate_invisible_primary_key = 0";
+
+  const bool gipk_mode = is_generate_invisible_primary_key_mode_active(thd);
+  thd->wsrep_TOI_pre_query = gipk_mode ? gipk_on_query : gipk_off_query;
+  thd->wsrep_TOI_pre_query_len = strlen(thd->wsrep_TOI_pre_query);
+}
+
+static inline void wsrep_reset_create_table_gipk_pre_query(THD *thd) {
+  thd->wsrep_TOI_pre_query = nullptr;
+  thd->wsrep_TOI_pre_query_len = 0;
+}
 #endif /* WITH_WSREP */
 
 Sql_cmd_ddl_table::Sql_cmd_ddl_table(Alter_info *alter_info)
@@ -289,13 +306,17 @@ bool Sql_cmd_create_table::execute(THD *thd) {
     Till PXC-5.7, it was being replicated through normal binlog replication.
     After MySQL-8.0, made DDL atomic, it introduces xid in-consistency
     with CTAS (check bug#93948). */
-    if (WSREP(thd) && !is_temporary_table &&
-        wsrep_to_isolation_begin(thd, create_table->db,
-                                 create_table->table_name, NULL)) {
-      if (create_info.tablespace) {
-        mysql_mutex_unlock(&LOCK_wsrep_alter_tablespace);
+    if (WSREP(thd) && !is_temporary_table) {
+      wsrep_set_create_table_gipk_pre_query(thd);
+      const bool toi_begin_error = wsrep_to_isolation_begin(
+          thd, create_table->db, create_table->table_name, NULL);
+      wsrep_reset_create_table_gipk_pre_query(thd);
+      if (toi_begin_error) {
+        if (create_info.tablespace) {
+          mysql_mutex_unlock(&LOCK_wsrep_alter_tablespace);
+        }
+        return true;
       }
-      return true;
     }
 
     if (create_info.tablespace) {
@@ -523,16 +544,21 @@ bool Sql_cmd_create_table::execute(THD *thd) {
                                  !wsrep_thd_is_in_to_isolation(thd, false));
         /* Note we are explicitly opening the macro as we need to perform
         cleanup action on TOI failure. */
-        if (WSREP(thd) && should_start_toi &&
-            wsrep_to_isolation_begin(thd, create_table->db,
-                                     create_table->table_name, NULL, NULL,
-                                     &alter_info)) {
-          if (!thd->lex->is_ignore() && thd->is_strict_mode())
-            thd->pop_internal_handler();
-          if (create_info.tablespace) {
-            mysql_mutex_unlock(&LOCK_wsrep_alter_tablespace);
+        if (WSREP(thd) && should_start_toi) {
+          wsrep_set_create_table_gipk_pre_query(thd);
+          const bool toi_begin_error =
+              wsrep_to_isolation_begin(thd, create_table->db,
+                                       create_table->table_name, NULL, NULL,
+                                       &alter_info);
+          wsrep_reset_create_table_gipk_pre_query(thd);
+          if (toi_begin_error) {
+            if (!thd->lex->is_ignore() && thd->is_strict_mode())
+              thd->pop_internal_handler();
+            if (create_info.tablespace) {
+              mysql_mutex_unlock(&LOCK_wsrep_alter_tablespace);
+            }
+            return true;
           }
-          return true;
         }
 
         if (should_start_toi) {

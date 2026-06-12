@@ -148,7 +148,8 @@ Wsrep_high_priority_service::Wsrep_high_priority_service(THD *thd)
   thd->clear_error();
   thd->variables.transaction_isolation = ISO_READ_COMMITTED;
   thd->tx_isolation = ISO_READ_COMMITTED;
-  wsrep_setup_applier_session_vars(thd);
+  //wsrep_setup_applier_session_vars(thd);
+  thd->variables.sql_generate_invisible_primary_key = false;
 
   /* From trans_begin() */
   thd->variables.option_bits |= OPTION_BEGIN;
@@ -770,7 +771,8 @@ int Wsrep_applier_service::apply_nbo_begin(const wsrep::ws_meta &ws_meta,
       replayer_thd->variables.option_bits &= ~(OPTION_BIN_LOG);
       replayer_thd->variables.option_bits |= OPTION_BIN_LOG_INTERNAL_OFF;
     }
-    wsrep_setup_applier_session_vars(replayer_thd);
+    //wsrep_setup_applier_session_vars(replayer_thd);
+    replayer_thd->variables.sql_generate_invisible_primary_key = false;
 
     // Mark it as a system thread so it shows up in show processlist for wait
     // condition
