@@ -1,0 +1,79 @@
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\] statement failed .* The server is not configured as replica");
+SET SESSION sql_log_bin = 1;
+#
+# 1. Variables exist with documented defaults.
+#
+SELECT @@GLOBAL.wsrep_async_failover;
+@@GLOBAL.wsrep_async_failover
+0
+SELECT @@GLOBAL.wsrep_async_failover_mode;
+@@GLOBAL.wsrep_async_failover_mode
+OFF
+SELECT @@GLOBAL.wsrep_async_failover_channel;
+@@GLOBAL.wsrep_async_failover_channel
+
+SELECT @@GLOBAL.wsrep_async_failover_gtid_check;
+@@GLOBAL.wsrep_async_failover_gtid_check
+ENFORCE
+SELECT @@GLOBAL.wsrep_async_failover_read_only;
+@@GLOBAL.wsrep_async_failover_read_only
+1
+SELECT @@GLOBAL.wsrep_async_failover_check_interval;
+@@GLOBAL.wsrep_async_failover_check_interval
+5
+#
+# 2. The Performance Schema status table exists and has exactly one row.
+#
+SELECT COUNT(*) FROM performance_schema.wsrep_async_failover_status;
+COUNT(*)
+1
+SELECT ENABLED, MODE, IS_ACTIVE_REPLICA FROM performance_schema.wsrep_async_failover_status;
+ENABLED	MODE	IS_ACTIVE_REPLICA
+NO	OFF	NO
+#
+# 3. Invalid enum values are rejected.
+#
+SET GLOBAL wsrep_async_failover_mode='BOGUS';
+ERROR 42000: Variable 'wsrep_async_failover_mode' can't be set to the value of 'BOGUS'
+SET GLOBAL wsrep_async_failover_gtid_check='SOMETIMES';
+ERROR 42000: Variable 'wsrep_async_failover_gtid_check' can't be set to the value of 'SOMETIMES'
+#
+# 4. Enable the coordinator in RECEIVER mode. The lone node (wsrep index
+#    0) must elect itself as the active replica.
+#
+SET GLOBAL wsrep_async_failover_channel='';
+SET GLOBAL wsrep_async_failover_mode='RECEIVER';
+SET GLOBAL wsrep_async_failover=ON;
+SELECT ENABLED, MODE, IS_ACTIVE_REPLICA, ELECTED_INDEX, CLUSTER_SIZE,
+SUPER_READ_ONLY_MANAGED
+FROM performance_schema.wsrep_async_failover_status;
+ENABLED	MODE	IS_ACTIVE_REPLICA	ELECTED_INDEX	CLUSTER_SIZE	SUPER_READ_ONLY_MANAGED
+YES	RECEIVER	YES	0	1	YES
+#
+# 5. super_read_only is automatically enabled on the DR cluster.
+#
+SELECT @@GLOBAL.super_read_only;
+@@GLOBAL.super_read_only
+1
+#
+# 6. The GTID consistency gate reports OK on a clean node.
+#
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+GTID_CONSISTENCY
+OK
+#
+# 7. Disabling the coordinator stops the worker thread. super_read_only
+#    is intentionally left in place (operator-controlled) to preserve the
+#    split-brain guarantee until explicitly cleared.
+#
+SET GLOBAL wsrep_async_failover=OFF;
+SELECT ENABLED FROM performance_schema.wsrep_async_failover_status;
+ENABLED
+NO
+#
+# 8. Clean up.
+#
+SET GLOBAL wsrep_async_failover_mode='OFF';
+SET GLOBAL super_read_only=OFF;
+SET GLOBAL read_only=OFF;

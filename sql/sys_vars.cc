@@ -8901,6 +8901,61 @@ static Sys_var_bool Sys_wsrep_async_monitor(
     "This variable is only allowed to be changed through command line.",
     READ_ONLY GLOBAL_VAR(wsrep_use_async_monitor), CMD_LINE(OPT_ARG),
     DEFAULT(true), NO_MUTEX_GUARD, NOT_IN_BINLOG);
+
+/* PXC-5201: Cluster-Aware Asynchronous Replication Failover. */
+static Sys_var_bool Sys_wsrep_async_failover(
+    "wsrep_async_failover",
+    "PXC-5201: enable the cluster-aware asynchronous replication failover "
+    "coordinator on this node. When ON, PXC automatically manages the "
+    "asynchronous replication link between two Galera clusters.",
+    GLOBAL_VAR(wsrep_async_failover), CMD_LINE(OPT_ARG), DEFAULT(false),
+    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+    ON_UPDATE(wsrep_async_failover_update));
+
+static const char *wsrep_async_failover_mode_names[] = {"OFF", "RECEIVER",
+                                                        "SOURCE", "BOTH",
+                                                        NullS};
+static Sys_var_enum Sys_wsrep_async_failover_mode(
+    "wsrep_async_failover_mode",
+    "PXC-5201: role this cluster plays in the asynchronous replication link: "
+    "OFF, RECEIVER (DR site), SOURCE (primary site) or BOTH.",
+    GLOBAL_VAR(wsrep_async_failover_mode), CMD_LINE(REQUIRED_ARG),
+    wsrep_async_failover_mode_names, DEFAULT(0), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+    ON_CHECK(0), ON_UPDATE(wsrep_async_failover_wakeup_update));
+
+static Sys_var_charptr Sys_wsrep_async_failover_channel(
+    "wsrep_async_failover_channel",
+    "PXC-5201: the asynchronous replication channel managed by the coordinator "
+    "on the receiver side. Empty means the default channel.",
+    GLOBAL_VAR(wsrep_async_failover_channel), CMD_LINE(REQUIRED_ARG),
+    IN_SYSTEM_CHARSET, DEFAULT(""), NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+    ON_UPDATE(wsrep_async_failover_wakeup_update));
+
+static const char *wsrep_async_failover_gtid_check_names[] = {"OFF", "WARN",
+                                                             "ENFORCE", NullS};
+static Sys_var_enum Sys_wsrep_async_failover_gtid_check(
+    "wsrep_async_failover_gtid_check",
+    "PXC-5201: GTID consistency policy applied before (re)starting the async "
+    "replica: OFF, WARN or ENFORCE.",
+    GLOBAL_VAR(wsrep_async_failover_gtid_check), CMD_LINE(REQUIRED_ARG),
+    wsrep_async_failover_gtid_check_names, DEFAULT(2), NO_MUTEX_GUARD,
+    NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(wsrep_async_failover_wakeup_update));
+
+static Sys_var_bool Sys_wsrep_async_failover_read_only(
+    "wsrep_async_failover_read_only",
+    "PXC-5201: when acting as RECEIVER/BOTH, keep the DR cluster in "
+    "super_read_only to avoid split brain.",
+    GLOBAL_VAR(wsrep_async_failover_read_only), CMD_LINE(OPT_ARG),
+    DEFAULT(true), NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+    ON_UPDATE(wsrep_async_failover_wakeup_update));
+
+static Sys_var_uint Sys_wsrep_async_failover_check_interval(
+    "wsrep_async_failover_check_interval",
+    "PXC-5201: interval in seconds at which the coordinator re-evaluates "
+    "cluster membership and GTID consistency.",
+    GLOBAL_VAR(wsrep_async_failover_check_interval), CMD_LINE(REQUIRED_ARG),
+    VALID_RANGE(1, 3600), DEFAULT(5), BLOCK_SIZE(1), NO_MUTEX_GUARD,
+    NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(wsrep_async_failover_wakeup_update));
 #endif /* WITH_WSREP */
 
 static bool check_set_require_row_format(sys_var *, THD *thd, set_var *var) {

@@ -1,0 +1,55 @@
+# ==== Purpose ====
+# PXC-5201: the asynchronous_connection_failover_add_managed UDF must accept
+# the new 'GaleraCluster' managed type (in addition to 'GroupReplication'),
+# so that a PXC source cluster can be registered as a managed source group.
+#
+# Requirements covered: FR-B1, FR-B4.
+# ==================
+--source include/have_wsrep_provider.inc
+
+--echo #
+--echo # 1. 'GaleraCluster' is accepted and stored.
+--echo #
+--replace_result $SERVER_MYPORT_1 SERVER_MYPORT_1
+--eval SELECT asynchronous_connection_failover_add_managed('ch1', 'GaleraCluster', 'd1-cluster', '127.0.0.1', $SERVER_MYPORT_1, '', 80, 60)
+
+SELECT CHANNEL_NAME, MANAGED_NAME, MANAGED_TYPE
+  FROM performance_schema.replication_asynchronous_connection_failover_managed
+ WHERE MANAGED_TYPE='GaleraCluster';
+
+--echo #
+--echo # 2. The legacy 'GroupReplication' type still works (no regression).
+--echo #
+--replace_result $SERVER_MYPORT_1 SERVER_MYPORT_1
+--eval SELECT asynchronous_connection_failover_add_managed('ch2', 'GroupReplication', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '127.0.0.1', $SERVER_MYPORT_1, '', 80, 60)
+
+SELECT COUNT(*)
+  FROM performance_schema.replication_asynchronous_connection_failover_managed;
+
+--echo #
+--echo # 3. An unknown managed type is rejected with a helpful message.
+--echo #
+--replace_result $SERVER_MYPORT_1 SERVER_MYPORT_1
+--error ER_CANT_INITIALIZE_UDF
+--eval SELECT asynchronous_connection_failover_add_managed('ch3', 'NotAType', 'x', '127.0.0.1', $SERVER_MYPORT_1, '', 80, 60)
+
+--echo #
+--echo # 4. Clean up.
+--echo #
+SELECT asynchronous_connection_failover_delete_managed('ch1', 'd1-cluster');
+SELECT asynchronous_connection_failover_delete_managed('ch2', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
+SELECT COUNT(*)
+  FROM performance_schema.replication_asynchronous_connection_failover_managed;
+
+# Reset clears the internal configuration-version bookkeeping rows that the
+# managed UDFs maintain, so the server's persistent state matches the
+# pre-test baseline (keeps mysql-test-run check-testcase happy).
+--disable_result_log
+SELECT asynchronous_connection_failover_reset();
+--enable_result_log
+
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("The group .* for the channel .* has been added, and so added its entry in replication_asynchronous_connection_failover_managed and source to replication_asynchronous_connection_failover table.");
+CALL mtr.add_suppression("The group .* for the channel .* has been removed, and so removed its entry from replication_asynchronous_connection_failover_managed and all the group members from replication_asynchronous_connection_failover table.");
+SET SESSION sql_log_bin = 1;

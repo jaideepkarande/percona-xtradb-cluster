@@ -370,6 +370,7 @@ table_replication_applier_status_by_coordinator.cc
 table_replication_applier_status_by_worker.cc
 table_replication_group_member_stats.cc
 table_rpl_async_connection_failover_managed.cc
+table_wsrep_async_failover_status.cc
 table_log_status.cc
 table_plugin_table.cc
 table_replication_applier_filters.cc

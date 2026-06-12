@@ -14144,6 +14144,7 @@ PSI_thread_key key_THREAD_wsrep_sst_logger;
 PSI_thread_key key_THREAD_wsrep_applier;
 PSI_thread_key key_THREAD_wsrep_rollbacker;
 PSI_thread_key key_THREAD_wsrep_post_rollbacker;
+PSI_thread_key key_THREAD_wsrep_async_failover;  // PXC-5201
 #endif /* WITH_WSREP */
 
 /* clang-format off */
@@ -14170,7 +14171,8 @@ PSI_FLAG_USER | PSI_FLAG_NO_SEQNUM, 0, PSI_DOCUMENT_ME},
   { &key_THREAD_wsrep_sst_logger, "THREAD_wsrep_sst_logger", "sst_logger", PSI_FLAG_SINGLETON | PSI_FLAG_THREAD_SYSTEM, 0, PSI_DOCUMENT_ME},
   { &key_THREAD_wsrep_applier, "THREAD_wsrep_applier", "applier", PSI_FLAG_THREAD_SYSTEM, 0, PSI_DOCUMENT_ME},
   { &key_THREAD_wsrep_rollbacker, "THREAD_wsrep_rollbacker", "rlb", PSI_FLAG_SINGLETON | PSI_FLAG_THREAD_SYSTEM, 0, PSI_DOCUMENT_ME},
-  { &key_THREAD_wsrep_post_rollbacker, "THREAD_wsrep_post_rollbacker", "postrlb", PSI_FLAG_SINGLETON | PSI_FLAG_THREAD_SYSTEM, 0, PSI_DOCUMENT_ME}
+  { &key_THREAD_wsrep_post_rollbacker, "THREAD_wsrep_post_rollbacker", "postrlb", PSI_FLAG_SINGLETON | PSI_FLAG_THREAD_SYSTEM, 0, PSI_DOCUMENT_ME},
+  { &key_THREAD_wsrep_async_failover, "THREAD_wsrep_async_failover", "acf_coord", PSI_FLAG_SINGLETON | PSI_FLAG_THREAD_SYSTEM, 0, PSI_DOCUMENT_ME}
 #endif /* WITH_WSREP */
 };
 /* clang-format on */

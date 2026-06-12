@@ -82,6 +82,13 @@ extern WsrepVersion wsrep_protocol_version;
 extern ulong wsrep_forced_binlog_format;
 extern bool wsrep_desync;
 extern ulong wsrep_reject_queries;
+/* PXC-5201: Cluster-Aware Asynchronous Replication Failover coordinator. */
+extern bool wsrep_async_failover;
+extern ulong wsrep_async_failover_mode;
+extern char *wsrep_async_failover_channel;
+extern ulong wsrep_async_failover_gtid_check;
+extern bool wsrep_async_failover_read_only;
+extern uint wsrep_async_failover_check_interval;
 extern bool wsrep_recovery;
 extern bool wsrep_log_conflicts;
 extern bool wsrep_load_data_splitting;
@@ -436,6 +443,7 @@ extern PSI_thread_key key_THREAD_wsrep_sst_donor;
 extern PSI_thread_key key_THREAD_wsrep_sst_logger;
 extern PSI_thread_key key_THREAD_wsrep_applier;
 extern PSI_thread_key key_THREAD_wsrep_rollbacker;
+extern PSI_thread_key key_THREAD_wsrep_async_failover;  // PXC-5201
 extern PSI_thread_key key_THREAD_wsrep_post_rollbacker;
 
 extern PSI_file_key key_file_wsrep_gra_log;

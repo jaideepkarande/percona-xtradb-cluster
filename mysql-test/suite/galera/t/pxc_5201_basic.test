@@ -1,0 +1,93 @@
+# ==== Purpose ====
+# PXC-5201: Native Automatic Asynchronous Replication Failover.
+#
+# Validates the user-visible surface of the Cluster-Aware Asynchronous
+# Replication Failover Coordinator on a single-member primary component:
+#   * the wsrep_async_failover* system variables and their defaults,
+#   * dynamic enable/disable of the coordinator,
+#   * the performance_schema.wsrep_async_failover_status table,
+#   * deterministic self-election of the only (index 0) node,
+#   * automatic super_read_only on the DR cluster,
+#   * the GTID consistency gate verdict.
+#
+# Requirements covered: FR-A1, FR-A2, FR-C1..C4, FR-S1, FR-G1, FR-G4, NFR-4.
+# ==================
+--source include/have_wsrep_provider.inc
+
+# This test enables RECEIVER mode on a node that has no configured async
+# source (no CHANGE REPLICATION SOURCE TO). The coordinator skips START REPLICA
+# in that case, but suppress the benign message defensively in case the
+# environment leaves a half-configured default channel behind.
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\] statement failed .* The server is not configured as replica");
+SET SESSION sql_log_bin = 1;
+
+--echo #
+--echo # 1. Variables exist with documented defaults.
+--echo #
+SELECT @@GLOBAL.wsrep_async_failover;
+SELECT @@GLOBAL.wsrep_async_failover_mode;
+SELECT @@GLOBAL.wsrep_async_failover_channel;
+SELECT @@GLOBAL.wsrep_async_failover_gtid_check;
+SELECT @@GLOBAL.wsrep_async_failover_read_only;
+SELECT @@GLOBAL.wsrep_async_failover_check_interval;
+
+--echo #
+--echo # 2. The Performance Schema status table exists and has exactly one row.
+--echo #
+SELECT COUNT(*) FROM performance_schema.wsrep_async_failover_status;
+SELECT ENABLED, MODE, IS_ACTIVE_REPLICA FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 3. Invalid enum values are rejected.
+--echo #
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL wsrep_async_failover_mode='BOGUS';
+--error ER_WRONG_VALUE_FOR_VAR
+SET GLOBAL wsrep_async_failover_gtid_check='SOMETIMES';
+
+--echo #
+--echo # 4. Enable the coordinator in RECEIVER mode. The lone node (wsrep index
+--echo #    0) must elect itself as the active replica.
+--echo #
+SET GLOBAL wsrep_async_failover_channel='';
+SET GLOBAL wsrep_async_failover_mode='RECEIVER';
+SET GLOBAL wsrep_async_failover=ON;
+
+--let $wait_condition= SELECT ENABLED='YES' AND IS_ACTIVE_REPLICA='YES' FROM performance_schema.wsrep_async_failover_status
+--source include/wait_condition.inc
+
+SELECT ENABLED, MODE, IS_ACTIVE_REPLICA, ELECTED_INDEX, CLUSTER_SIZE,
+       SUPER_READ_ONLY_MANAGED
+  FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 5. super_read_only is automatically enabled on the DR cluster.
+--echo #
+--let $wait_condition= SELECT @@GLOBAL.super_read_only = 1
+--source include/wait_condition.inc
+SELECT @@GLOBAL.super_read_only;
+
+--echo #
+--echo # 6. The GTID consistency gate reports OK on a clean node.
+--echo #
+--let $wait_condition= SELECT GTID_CONSISTENCY='OK' FROM performance_schema.wsrep_async_failover_status
+--source include/wait_condition.inc
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 7. Disabling the coordinator stops the worker thread. super_read_only
+--echo #    is intentionally left in place (operator-controlled) to preserve the
+--echo #    split-brain guarantee until explicitly cleared.
+--echo #
+SET GLOBAL wsrep_async_failover=OFF;
+--let $wait_condition= SELECT ENABLED='NO' FROM performance_schema.wsrep_async_failover_status
+--source include/wait_condition.inc
+SELECT ENABLED FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 8. Clean up.
+--echo #
+SET GLOBAL wsrep_async_failover_mode='OFF';
+SET GLOBAL super_read_only=OFF;
+SET GLOBAL read_only=OFF;

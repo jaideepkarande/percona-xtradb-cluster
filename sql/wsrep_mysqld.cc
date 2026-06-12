@@ -45,6 +45,7 @@
 #include "sp_head.h"
 #include "sql_base.h"  // TEMP_PREFIX
 #include "wsrep_applier.h"
+#include "wsrep_async_failover.h"  // PXC-5201
 #include "wsrep_async_monitor.h"
 #include "wsrep_binlog.h"
 #include "wsrep_priv.h"
@@ -117,6 +118,13 @@ uint wsrep_ignore_apply_errors = 0;
 bool wsrep_recovery = 0;  // recovery
 bool wsrep_log_conflicts = 0;
 bool wsrep_desync = 0;               // desynchronize the node from the cluster
+/* PXC-5201: Cluster-Aware Asynchronous Replication Failover coordinator. */
+bool wsrep_async_failover = 0;            // master switch (default OFF)
+ulong wsrep_async_failover_mode = 0;      // OFF/RECEIVER/SOURCE/BOTH
+char *wsrep_async_failover_channel = nullptr;  // managed channel name
+ulong wsrep_async_failover_gtid_check = 2;     // OFF/WARN/ENFORCE (ENFORCE)
+bool wsrep_async_failover_read_only = 1;       // manage super_read_only
+uint wsrep_async_failover_check_interval = 5;  // seconds
 bool wsrep_load_data_splitting = 1;  // commit load data every 10K intervals
 bool wsrep_restart_slave = 0;        // should mysql slave thread be
                                      // restarted, if node joins back
@@ -1079,9 +1087,14 @@ void wsrep_init_globals() {
   if (WSREP_ON) {
     Wsrep_server_state::instance().initialized();
   }
+  /* PXC-5201: bring up the async replication failover coordinator. It is a
+     no-op unless wsrep_async_failover is enabled. */
+  Wsrep_async_failover::instance().init();
 }
 
 void wsrep_deinit_server() {
+  /* PXC-5201: stop the coordinator thread before tearing down server state. */
+  Wsrep_async_failover::instance().deinit();
   wsrep_deinit_schema();
   Wsrep_server_state::destroy();
 }
