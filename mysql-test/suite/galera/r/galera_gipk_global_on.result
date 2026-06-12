@@ -1,0 +1,15 @@
+SET GLOBAL sql_generate_invisible_primary_key = ON;
+SELECT @@global.sql_generate_invisible_primary_key = 1;
+@@global.sql_generate_invisible_primary_key = 1
+1
+SET GLOBAL sql_generate_invisible_primary_key = ON;
+SELECT @@global.sql_generate_invisible_primary_key = 1;
+@@global.sql_generate_invisible_primary_key = 1
+1
+CREATE DATABASE gipk_test_on;
+CREATE TABLE gipk_test_on.t1 (id INT NOT NULL, c VARCHAR(100)) ENGINE=InnoDB;
+include/assert.inc [node_1 should have generated my_row_id]
+include/assert.inc [node_2 should have generated my_row_id]
+DROP DATABASE gipk_test_on;
+SET GLOBAL sql_generate_invisible_primary_key = 0;
+SET GLOBAL sql_generate_invisible_primary_key = 0;

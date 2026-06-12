@@ -1,0 +1,78 @@
+--source include/galera_cluster_3nodes.inc
+
+--connection node_1
+--let $node_1_saved_gipk = `SELECT @@global.sql_generate_invisible_primary_key`
+SET GLOBAL sql_generate_invisible_primary_key = ON;
+
+--connection node_2
+--let $node_2_saved_gipk = `SELECT @@global.sql_generate_invisible_primary_key`
+SET GLOBAL sql_generate_invisible_primary_key = OFF;
+
+--connection node_3
+--let $node_3_saved_gipk = `SELECT @@global.sql_generate_invisible_primary_key`
+SET GLOBAL sql_generate_invisible_primary_key = OFF;
+
+--connect node_1b, 127.0.0.1, root, , test, $NODE_MYPORT_1
+--connection node_1b
+CREATE DATABASE gipk_mixed_3n;
+CREATE TABLE gipk_mixed_3n.t_from_node1 (c1 INT) ENGINE=InnoDB;
+--disconnect node_1b
+
+--connect node_2b, 127.0.0.1, root, , test, $NODE_MYPORT_2
+--connection node_2b
+CREATE TABLE gipk_mixed_3n.t_from_node2 (c1 INT) ENGINE=InnoDB;
+--disconnect node_2b
+
+--connection node_1
+--let $pk_count = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'gipk_mixed_3n' AND table_name = 't_from_node1' AND column_name = 'my_row_id'`
+--let $assert_text = node_1 should see generated my_row_id for node_1 origin
+--let $assert_cond = $pk_count = 1
+--source include/assert.inc
+
+--let $pk_count = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'gipk_mixed_3n' AND table_name = 't_from_node2' AND column_name = 'my_row_id'`
+--let $assert_text = node_1 should not see generated my_row_id for node_2 origin
+--let $assert_cond = $pk_count = 0
+--source include/assert.inc
+
+--connection node_2
+--let $pk_count = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'gipk_mixed_3n' AND table_name = 't_from_node1' AND column_name = 'my_row_id'`
+--let $assert_text = node_2 should see generated my_row_id for node_1 origin
+--let $assert_cond = $pk_count = 1
+--source include/assert.inc
+
+--let $pk_count = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'gipk_mixed_3n' AND table_name = 't_from_node2' AND column_name = 'my_row_id'`
+--let $assert_text = node_2 should not see generated my_row_id for node_2 origin
+--let $assert_cond = $pk_count = 0
+--source include/assert.inc
+
+--connection node_3
+--let $pk_count = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'gipk_mixed_3n' AND table_name = 't_from_node1' AND column_name = 'my_row_id'`
+--let $assert_text = node_3 should see generated my_row_id for node_1 origin
+--let $assert_cond = $pk_count = 1
+--source include/assert.inc
+
+--let $pk_count = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'gipk_mixed_3n' AND table_name = 't_from_node2' AND column_name = 'my_row_id'`
+--let $assert_text = node_3 should not see generated my_row_id for node_2 origin
+--let $assert_cond = $pk_count = 0
+--source include/assert.inc
+
+--connection node_1
+INSERT INTO gipk_mixed_3n.t_from_node1(c1) VALUES (1), (2);
+--connection node_2
+INSERT INTO gipk_mixed_3n.t_from_node1(c1) VALUES (3);
+
+--connection node_3
+--let $row_count = `SELECT COUNT(*) FROM gipk_mixed_3n.t_from_node1`
+--let $assert_text = node_3 should see all replicated rows for generated PK table
+--let $assert_cond = $row_count = 3
+--source include/assert.inc
+
+--connection node_1
+DROP DATABASE gipk_mixed_3n;
+--eval SET GLOBAL sql_generate_invisible_primary_key = $node_1_saved_gipk
+
+--connection node_2
+--eval SET GLOBAL sql_generate_invisible_primary_key = $node_2_saved_gipk
+
+--connection node_3
+--eval SET GLOBAL sql_generate_invisible_primary_key = $node_3_saved_gipk
