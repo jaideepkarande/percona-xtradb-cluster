@@ -41,6 +41,7 @@ DELIMITER ;|
 while ($count)
 {
   --connection c$count
+  SET SESSION wsrep_retry_autocommit = 10;
   --let $wait_condition = SELECT COUNT(*) = 1 FROM information_schema.routines WHERE ROUTINE_NAME = 'do_inserts';
   --source include/wait_condition.inc
 
