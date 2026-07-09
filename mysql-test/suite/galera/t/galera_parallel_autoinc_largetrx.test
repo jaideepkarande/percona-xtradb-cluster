@@ -21,11 +21,14 @@ CREATE TABLE t1 (f1 INTEGER AUTO_INCREMENT PRIMARY KEY, f2 INTEGER) Engine=InnoD
 SET GLOBAL wsrep_applier_threads = 4;
 --let $wait_condition = SELECT VARIABLE_VALUE = @@wsrep_applier_threads + 1 FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_thread_count';
 --source include/wait_condition.inc
+SET SESSION wsrep_retry_autocommit = 10;
 
 --connection node_1
+SET SESSION wsrep_retry_autocommit = 10;
 --send INSERT INTO t1 (f2) SELECT 1 FROM ten AS a1, ten AS a2, ten AS a3, ten AS a4;
 
 --connection node_1a
+SET SESSION wsrep_retry_autocommit = 10;
 --send INSERT INTO t1 (f2) SELECT 1 FROM ten AS a1, ten AS a2, ten AS a3, ten AS a4;
 
 --connection node_2
