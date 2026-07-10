@@ -2,6 +2,9 @@
 
 ## Preamble
 --source include/galera_cluster.inc
+SET GLOBAL wsrep_auto_increment_control=OFF;
+SET SESSION auto_increment_increment=1;
+SET SESSION auto_increment_offset=1;
 --source include/xplugin_preamble.inc
 --source include/xplugin_create_user.inc
 
@@ -203,4 +206,5 @@ exec $MYSQLXTEST
 --remove_files_wildcard $MYSQL_TMP_DIR *.xpl
 --source include/xplugin_drop_user.inc
 set global mysqlx_document_id_unique_prefix = DEFAULT;
+SET GLOBAL wsrep_auto_increment_control=ON;
 DROP SCHEMA IF EXISTS xtest;

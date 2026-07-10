@@ -1,3 +1,6 @@
+SET GLOBAL wsrep_auto_increment_control=OFF;
+SET SESSION auto_increment_increment=1;
+SET SESSION auto_increment_offset=1;
 call mtr.add_suppression("Table 'coll' already exists");
 call mtr.add_suppression("Query apply failed");
 CREATE SCHEMA xtest;
@@ -50,10 +53,10 @@ command ok
 0 rows affected
 
 1 rows affected
-auto-generated id(s): 0000XXXXXXXX0000000000000003
+auto-generated id(s): 0000XXXXXXXX0000000000000002
 Got expected error (code 0)
 doc
-{"_id": "0000XXXXXXXX0000000000000003", "two": 2}
+{"_id": "0000XXXXXXXX0000000000000002", "two": 2}
 0 rows affected
 
 Insert: doc with _id (placeholder)
@@ -77,10 +80,10 @@ command ok
 0 rows affected
 
 1 rows affected
-auto-generated id(s): 0000XXXXXXXX0000000000000005
+auto-generated id(s): 0000XXXXXXXX0000000000000003
 Got expected error (code 0)
 doc
-{"_id": "0000XXXXXXXX0000000000000005", "two": 2}
+{"_id": "0000XXXXXXXX0000000000000003", "two": 2}
 0 rows affected
 
 Insert: 2 doc without _id (literal)
@@ -91,12 +94,12 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 0000XXXXXXXX0000000000000007,0000XXXXXXXX0000000000000009
+auto-generated id(s): 0000XXXXXXXX0000000000000004,0000XXXXXXXX0000000000000005
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "0000XXXXXXXX0000000000000007", "two": 2}
-{"_id": "0000XXXXXXXX0000000000000009", "three": 3}
+{"_id": "0000XXXXXXXX0000000000000004", "two": 2}
+{"_id": "0000XXXXXXXX0000000000000005", "three": 3}
 0 rows affected
 
 Insert: 2 doc without _id (literal/object)
@@ -107,12 +110,12 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 0000XXXXXXXX000000000000000b,0000XXXXXXXX000000000000000d
+auto-generated id(s): 0000XXXXXXXX0000000000000006,0000XXXXXXXX0000000000000007
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "0000XXXXXXXX000000000000000b", "three": 3}
-{"_id": "0000XXXXXXXX000000000000000d", "two": 2}
+{"_id": "0000XXXXXXXX0000000000000006", "three": 3}
+{"_id": "0000XXXXXXXX0000000000000007", "two": 2}
 0 rows affected
 
 Insert: 2 doc with/without _id (literal)
@@ -123,11 +126,11 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 0000XXXXXXXX000000000000000f
+auto-generated id(s): 0000XXXXXXXX0000000000000008
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "0000XXXXXXXX000000000000000f", "three": 3}
+{"_id": "0000XXXXXXXX0000000000000008", "three": 3}
 {"_id": "1", "one": 1}
 0 rows affected
 
@@ -139,11 +142,11 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 0000XXXXXXXX0000000000000011
+auto-generated id(s): 0000XXXXXXXX0000000000000009
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "0000XXXXXXXX0000000000000011", "two": 2}
+{"_id": "0000XXXXXXXX0000000000000009", "two": 2}
 {"_id": "1", "one": 1}
 0 rows affected
 
@@ -177,12 +180,12 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 00ffXXXXXXXX0000000000000013,00ffXXXXXXXX0000000000000015
+auto-generated id(s): 00ffXXXXXXXX000000000000000a,00ffXXXXXXXX000000000000000b
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "00ffXXXXXXXX0000000000000013", "two": 2}
-{"_id": "00ffXXXXXXXX0000000000000015", "three": 3}
+{"_id": "00ffXXXXXXXX000000000000000a", "two": 2}
+{"_id": "00ffXXXXXXXX000000000000000b", "three": 3}
 0 rows affected
 
 Insert: change of "auto_increment_increment"
@@ -195,12 +198,12 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 00ffXXXXXXXX0000000000000017,00ffXXXXXXXX0000000000000019
+auto-generated id(s): 00ffXXXXXXXX0000000000000101,00ffXXXXXXXX0000000000000201
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "00ffXXXXXXXX0000000000000017", "two": 2}
-{"_id": "00ffXXXXXXXX0000000000000019", "three": 3}
+{"_id": "00ffXXXXXXXX0000000000000101", "two": 2}
+{"_id": "00ffXXXXXXXX0000000000000201", "three": 3}
 0 rows affected
 
 Insert: change of "auto_increment_offset"
@@ -213,12 +216,12 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 00ffXXXXXXXX000000000000001b,00ffXXXXXXXX000000000000001d
+auto-generated id(s): 00ffXXXXXXXX0000000000000280,00ffXXXXXXXX0000000000000380
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "00ffXXXXXXXX000000000000001b", "two": 2}
-{"_id": "00ffXXXXXXXX000000000000001d", "three": 3}
+{"_id": "00ffXXXXXXXX0000000000000280", "two": 2}
+{"_id": "00ffXXXXXXXX0000000000000380", "three": 3}
 0 rows affected
 
 Insert: reset of "unique_prefix", "auto_increment_increment" and "auto_increment_offset"
@@ -235,12 +238,12 @@ command ok
 0 rows affected
 
 2 rows affected
-auto-generated id(s): 0000XXXXXXXX000000000000001f,0000XXXXXXXX0000000000000021
+auto-generated id(s): 0000XXXXXXXX0000000000000381,0000XXXXXXXX0000000000000382
 Records: 2  Duplicates: 0  Warnings: 0
 Got expected error (code 0)
 doc
-{"_id": "0000XXXXXXXX000000000000001f", "two": 2}
-{"_id": "0000XXXXXXXX0000000000000021", "three": 3}
+{"_id": "0000XXXXXXXX0000000000000381", "two": 2}
+{"_id": "0000XXXXXXXX0000000000000382", "three": 3}
 0 rows affected
 
 Notice: insert doc with _id
@@ -274,7 +277,7 @@ Mysqlx.Notice.Frame {
 Mysqlx.Notice.Frame {
   type: 3
   scope: LOCAL
-  payload: "Mysqlx.Notice.SessionStateChanged { param: GENERATED_DOCUMENT_IDS\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000023\"\n  }\n}\n }"
+  payload: "Mysqlx.Notice.SessionStateChanged { param: GENERATED_DOCUMENT_IDS\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000383\"\n  }\n}\n }"
 }
 
 Mysqlx.Sql.StmtExecuteOk {
@@ -302,7 +305,7 @@ Mysqlx.Notice.Frame {
 Mysqlx.Notice.Frame {
   type: 3
   scope: LOCAL
-  payload: "Mysqlx.Notice.SessionStateChanged { param: GENERATED_DOCUMENT_IDS\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000025\"\n  }\n}\n }"
+  payload: "Mysqlx.Notice.SessionStateChanged { param: GENERATED_DOCUMENT_IDS\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000384\"\n  }\n}\n }"
 }
 
 Mysqlx.Sql.StmtExecuteOk {
@@ -330,7 +333,7 @@ Mysqlx.Notice.Frame {
 Mysqlx.Notice.Frame {
   type: 3
   scope: LOCAL
-  payload: "Mysqlx.Notice.SessionStateChanged { param: GENERATED_DOCUMENT_IDS\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000027\"\n  }\n}\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000029\"\n  }\n}\n }"
+  payload: "Mysqlx.Notice.SessionStateChanged { param: GENERATED_DOCUMENT_IDS\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000385\"\n  }\n}\nvalue {\n  type: V_OCTETS\n  v_octets {\n    value: \"0000XXXXXXXX0000000000000386\"\n  }\n}\n }"
 }
 
 Mysqlx.Sql.StmtExecuteOk {
@@ -355,4 +358,5 @@ Mysqlx.Ok {
 }
 ok
 set global mysqlx_document_id_unique_prefix = DEFAULT;
+SET GLOBAL wsrep_auto_increment_control=ON;
 DROP SCHEMA IF EXISTS xtest;
