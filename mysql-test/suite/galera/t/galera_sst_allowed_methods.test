@@ -107,6 +107,7 @@
 ################################################################################
 # Test wsrep-sst-allowed-methods parameter validation on server startup
 --connection node_1
+--source include/wait_until_ready.inc
 --source include/shutdown_mysqld.inc
 
 --echo #
