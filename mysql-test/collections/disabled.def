@@ -354,5 +354,8 @@ galera-x.connection_tls_version : BUG#0 PXC-4154 TLS version is invalid (code 20
 galera-x.admin_list_objects_case_insensitive_names : BUG#0 PXC-4154 unexpected case value
 galera-x.admin_list_objects_case_insensitive_names_forced : BUG#0 PXC-4154 unexpected case value
 
+# Flaky 3-node cluster join / SST state-exchange races (PXC-5229 CI stabilization)
+galera_3nodes.GCF-363 : BUG#0 PXC-5229 Flaky 3-node join/SST state-exchange race (retry-passes)
+
 #Daily test failures
 rpl.rpl_row_idempotency : WL#11249 old error - timeout
