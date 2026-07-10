@@ -359,5 +359,8 @@ galera_3nodes.GCF-363 : BUG#0 PXC-5229 Flaky 3-node join/SST state-exchange race
 galera_3nodes.GCF-376 : BUG#0 PXC-5229 Flaky 3-node join/SST state-exchange race (retry-passes)
 galera_3nodes_nbo.galera_nbo_kill_slave_sst : BUG#0 PXC-5229 Flaky SST-kill state race (retry-passes)
 
+# Flaky timeout / wait-condition tests (PXC-5229 CI stabilization)
+innodb.trigger_function_lock_compare : BUG#0 PXC-5229 Flaky 7200s timeout, retry-passes in ~28s
+
 #Daily test failures
 rpl.rpl_row_idempotency : WL#11249 old error - timeout
