@@ -357,6 +357,7 @@ galera-x.admin_list_objects_case_insensitive_names_forced : BUG#0 PXC-4154 unexp
 # Flaky 3-node cluster join / SST state-exchange races (PXC-5229 CI stabilization)
 galera_3nodes.GCF-363 : BUG#0 PXC-5229 Flaky 3-node join/SST state-exchange race (retry-passes)
 galera_3nodes.GCF-376 : BUG#0 PXC-5229 Flaky 3-node join/SST state-exchange race (retry-passes)
+galera_3nodes_nbo.galera_nbo_kill_slave_sst : BUG#0 PXC-5229 Flaky SST-kill state race (retry-passes)
 
 #Daily test failures
 rpl.rpl_row_idempotency : WL#11249 old error - timeout
