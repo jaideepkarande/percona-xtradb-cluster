@@ -361,6 +361,7 @@ galera_3nodes_nbo.galera_nbo_kill_slave_sst : BUG#0 PXC-5229 Flaky SST-kill stat
 
 # Flaky timeout / wait-condition tests (PXC-5229 CI stabilization)
 innodb.trigger_function_lock_compare : BUG#0 PXC-5229 Flaky 7200s timeout, retry-passes in ~28s
+rpl_gtid.rpl_gtids_table_disable_binlog_on_slave : BUG#0 PXC-5229 Flaky wait_condition timeout (retry-passes)
 
 #Daily test failures
 rpl.rpl_row_idempotency : WL#11249 old error - timeout
