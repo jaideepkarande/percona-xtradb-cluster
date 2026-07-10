@@ -1,3 +1,6 @@
+SET GLOBAL wsrep_auto_increment_control=OFF;
+SET SESSION auto_increment_increment=1;
+SET SESSION auto_increment_offset=1;
 RUN drop schema if exists xtest
 
 0 rows affected
@@ -30,14 +33,14 @@ send Mysqlx.Sql.StmtExecute {
 
 
 1 rows affected
-last insert id: 3
+last insert id: 2
 send Mysqlx.Sql.StmtExecute {
   stmt: "insert into mytable values (DEFAULT, \'three\')"
 }
 
 
 1 rows affected
-last insert id: 5
+last insert id: 3
 RUN drop schema if exists xtest
 
 1 rows affected
@@ -45,3 +48,4 @@ Mysqlx.Ok {
   msg: "bye!"
 }
 ok
+SET GLOBAL wsrep_auto_increment_control=ON;
