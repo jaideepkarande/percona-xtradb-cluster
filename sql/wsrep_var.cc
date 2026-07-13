@@ -26,6 +26,7 @@
 
 #include "rpl_group_replication.h"
 
+#include "wsrep_async_failover.h"  // PXC-5201
 #include "wsrep_priv.h"
 #include "wsrep_thd.h"
 #include "wsrep_trans_observer.h"
@@ -743,6 +744,18 @@ bool wsrep_desync_check(sys_var *, THD *thd, set_var *var) {
 }
 
 bool wsrep_desync_update(sys_var *, THD *, enum_var_type) { return false; }
+
+/* PXC-5201: starting/stopping the coordinator when wsrep_async_failover
+   changes, and waking it for other configuration changes. */
+bool wsrep_async_failover_update(sys_var *, THD *, enum_var_type) {
+  Wsrep_async_failover::instance().refresh_enabled();
+  return false;
+}
+
+bool wsrep_async_failover_wakeup_update(sys_var *, THD *, enum_var_type) {
+  Wsrep_async_failover::instance().wakeup();
+  return false;
+}
 
 bool wsrep_max_ws_size_update(sys_var *, THD *, enum_var_type) {
   if (!Wsrep_server_state::instance().is_provider_loaded()) return false;

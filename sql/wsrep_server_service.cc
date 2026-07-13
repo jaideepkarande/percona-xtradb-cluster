@@ -18,6 +18,7 @@
 #include "mysql/psi/mysql_cond.h"
 #include "mysql/psi/mysql_mutex.h"
 
+#include "wsrep_async_failover.h"  // PXC-5201
 #include "wsrep_client_service.h"
 #include "wsrep_client_state.h"
 #include "wsrep_high_priority_service.h"
@@ -300,6 +301,12 @@ void Wsrep_server_service::log_view(
           "skipping write to wsrep_schema");
     }
   }
+
+  /* PXC-5201: notify the asynchronous replication failover coordinator of the
+     membership change so it can (re)elect the active replica promptly. The
+     authoritative election inputs are the wsrep status globals updated above;
+     this call is cheap (snapshot + condvar signal) and must not block. */
+  Wsrep_async_failover::instance().on_view(view);
 }
 
 void Wsrep_server_service::recover_streaming_appliers(

@@ -108,11 +108,17 @@ bool Rpl_async_conn_failover_delete_managed::delete_managed_init(
     return true;
   }
 
+  /* This should be removed */
   if (!mysql::gtid::Uuid::is_valid(args->args[1], args->lengths[1])) {
     my_stpcpy(message,
               "Wrong value: Please specify valid UUID for managed name.");
     return true;
   }
+  /* PXC-5201: the managed name is a UUID for GroupReplication groups but an
+     arbitrary cluster label for the GaleraCluster managed type. As this UDF
+     carries no managed_type argument, accept any non-empty managed name
+     (emptiness already rejected above) and let the row lookup, keyed by
+     channel + managed name, decide whether a row exists. */
 
   THD *thd{current_thd};
 

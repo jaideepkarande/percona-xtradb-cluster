@@ -1,0 +1,44 @@
+#
+# 1. 'GaleraCluster' is accepted and stored.
+#
+SELECT asynchronous_connection_failover_add_managed('ch1', 'GaleraCluster', 'd1-cluster', '127.0.0.1', SERVER_MYPORT_1, '', 80, 60);
+asynchronous_connection_failover_add_managed('ch1', 'GaleraCluster', 'd1-cluster', '127.0.0.1', SERVER_MYPORT_1, '', 80, 60)
+The UDF asynchronous_connection_failover_add_managed() executed successfully.
+SELECT CHANNEL_NAME, MANAGED_NAME, MANAGED_TYPE
+FROM performance_schema.replication_asynchronous_connection_failover_managed
+WHERE MANAGED_TYPE='GaleraCluster';
+CHANNEL_NAME	MANAGED_NAME	MANAGED_TYPE
+ch1	d1-cluster	GaleraCluster
+#
+# 2. The legacy 'GroupReplication' type still works (no regression).
+#
+SELECT asynchronous_connection_failover_add_managed('ch2', 'GroupReplication', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '127.0.0.1', SERVER_MYPORT_1, '', 80, 60);
+asynchronous_connection_failover_add_managed('ch2', 'GroupReplication', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '127.0.0.1', SERVER_MYPORT_1, '', 80, 60)
+The UDF asynchronous_connection_failover_add_managed() executed successfully.
+SELECT COUNT(*)
+FROM performance_schema.replication_asynchronous_connection_failover_managed;
+COUNT(*)
+2
+#
+# 3. An unknown managed type is rejected with a helpful message.
+#
+SELECT asynchronous_connection_failover_add_managed('ch3', 'NotAType', 'x', '127.0.0.1', SERVER_MYPORT_1, '', 80, 60);
+ERROR HY000: Can't initialize function 'asynchronous_connection_failover_add_managed'; Wrong value: Managed type must be GroupReplication or GaleraCluster.
+#
+# 4. Clean up.
+#
+SELECT asynchronous_connection_failover_delete_managed('ch1', 'd1-cluster');
+asynchronous_connection_failover_delete_managed('ch1', 'd1-cluster')
+The UDF asynchronous_connection_failover_delete_managed() executed successfully.
+SELECT asynchronous_connection_failover_delete_managed('ch2', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+asynchronous_connection_failover_delete_managed('ch2', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+The UDF asynchronous_connection_failover_delete_managed() executed successfully.
+SELECT COUNT(*)
+FROM performance_schema.replication_asynchronous_connection_failover_managed;
+COUNT(*)
+0
+SELECT asynchronous_connection_failover_reset();
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("The group .* for the channel .* has been added, and so added its entry in replication_asynchronous_connection_failover_managed and source to replication_asynchronous_connection_failover table.");
+CALL mtr.add_suppression("The group .* for the channel .* has been removed, and so removed its entry from replication_asynchronous_connection_failover_managed and all the group members from replication_asynchronous_connection_failover table.");
+SET SESSION sql_log_bin = 1;
