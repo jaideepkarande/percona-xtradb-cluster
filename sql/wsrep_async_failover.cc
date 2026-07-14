@@ -42,7 +42,8 @@
 #include "sql/sql_class.h"
 #include "sql/sql_lex.h"
 #include "sql/sql_list.h"
-#include "sql/sql_prepare.h"  // Ed_connection, Ed_result_set, Ed_row
+#include "sql/statement/ed_connection.h"  // Ed_connection
+#include "sql/statement/protocol_local.h"  // Ed_result_set, Ed_row, Ed_column
 #include "sql/sql_thd_internal_api.h"  // create_internal_thd
 #include "sql/strfunc.h"              // lex_string_strmake
 #include "sql/wsrep_mysqld.h"
