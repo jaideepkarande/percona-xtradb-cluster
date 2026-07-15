@@ -414,20 +414,33 @@ bool Sql_cmd_create_trigger::execute(THD *thd) {
       (strcmp(lex->definer->user.str, sctx->priv_user().str) == 0 &&
        my_strcasecmp(system_charset_info, lex->definer->host.str,
                      sctx->priv_host().str) == 0);
-  bool binlog_requires_super =
-      !trust_function_creators &&
-      (WSREP_EMULATE_BINLOG(thd) || mysql_bin_log.is_open());
-  bool has_super_or_set_user_id =
-      sctx->check_access(SUPER_ACL) ||
+  const bool has_super = sctx->check_access(SUPER_ACL);
+  const bool has_set_any_definer =
       sctx->has_global_grant(STRING_WITH_LEN("SET_ANY_DEFINER")).first;
 
-  // Definer check: If a definer is specified and is different from the current
-  // user, then we need to check for SUPER or SET_ANY_DEFINER privileges.
-  if ((!definer_is_current_user || binlog_requires_super) &&
-      !has_super_or_set_user_id) {
-    if (!definer_is_current_user) {
-      my_error(ER_SPECIFIC_ACCESS_DENIED_ERROR, MYF(0), "SUPER or SET_ANY_DEFINER");
-    } else if (WSREP(thd)) {
+  /*
+    Setting an explicit DEFINER different from the current user requires
+    SUPER or SET_ANY_DEFINER. This mirrors check_valid_definer() in
+    sql/auth/sql_authorization.cc.
+    Keep this check independent of the binlog-safety check below because
+    SET_ANY_DEFINER does not satisfy the binlog requirement.
+  */
+  if (!definer_is_current_user && !has_super && !has_set_any_definer) {
+    my_error(ER_SPECIFIC_ACCESS_DENIED_ERROR, MYF(0),
+             "SUPER or SET_ANY_DEFINER");
+    return true;
+  }
+
+  /*
+    Below changes are similar to PS just that we allow WSREP_EMULATE_BINLOG.
+    Galera support emulation binlogging if binlogging is off, so
+    WSREP_EMULATE_BINLOG is needed.
+  */
+  const bool binlog_requires_super =
+      !trust_function_creators &&
+      (WSREP_EMULATE_BINLOG(thd) || mysql_bin_log.is_open());
+  if (binlog_requires_super && !has_super) {
+    if (WSREP(thd)) {
       /*
         If WSREP is enabled, then we are ALWAYS doing binlog
         replication of some sort, and we always require the SUPER
