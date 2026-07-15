@@ -42,7 +42,7 @@
 #include "mysql_com.h"
 #include "mysqld_error.h"
 #include "sql/auth/auth_acls.h"
-#include "sql/auth/auth_common.h"  // check_table_access
+#include "sql/auth/sql_authorization.h"  // check_valid_definer
 #include "sql/auth/sql_security_ctx.h"
 #include "sql/binlog.h"
 #include "sql/dd/cache/dictionary_client.h"
@@ -409,26 +409,34 @@ bool Sql_cmd_create_trigger::execute(THD *thd) {
   Security_context *sctx = thd->security_context();
 #ifdef WITH_WSREP
   LEX *lex = thd->lex;
-  bool definer_is_current_user =
-      !lex->definer || /* If definer is not specified, consider current user */
-      (strcmp(lex->definer->user.str, sctx->priv_user().str) == 0 &&
-       my_strcasecmp(system_charset_info, lex->definer->host.str,
-                     sctx->priv_host().str) == 0);
-  bool binlog_requires_super =
+
+  /*
+    check_valid_definer() is the authorization check introduced in WL#15874.
+    It normally runs post-TOI, from Table_trigger_dispatcher::create_trigger().
+    Run it early as well, but only for a statement that will actually be
+    replicated, so the origin rejects an invalid DEFINER BEFORE TOI instead of
+    erroring out after the appliers have already created the trigger -- which
+    would leave this node inconsistent and evict it (PXC-4765, PXC-5292).
+
+    Gating on WSREP(thd) matters for error precedence: this runs ahead of
+    check_trg_priv_on_subj_table() below, so without the gate a caller lacking
+    TRIGGER privilege on the subject table would get the DEFINER error where PS
+    reports ER_TABLEACCESS_DENIED_ERROR. Outside a cluster there is no TOI and
+    hence no reason to check early, so PS precedence is kept intact there.
+
+    The post-TOI call re-runs this check and owns the informational
+    ER_NO_SUCH_USER note, so it is suppressed here to avoid raising it twice.
+  */
+  if (WSREP(thd) && lex->definer &&
+      check_valid_definer(thd, lex->definer,
+                          false /* report_no_such_user_warning */))
+    return true;
+
+  const bool binlog_requires_super =
       !trust_function_creators &&
       (WSREP_EMULATE_BINLOG(thd) || mysql_bin_log.is_open());
-  bool has_super_or_set_user_id =
-      sctx->check_access(SUPER_ACL) ||
-      sctx->has_global_grant(STRING_WITH_LEN("SET_ANY_DEFINER")).first;
-
-  // Definer check: If a definer is specified and is different from the current
-  // user, then we need to check for SUPER or SET_ANY_DEFINER privileges.
-  if ((!definer_is_current_user || binlog_requires_super) &&
-      !has_super_or_set_user_id) {
-    if (!definer_is_current_user) {
-      my_error(ER_SPECIFIC_ACCESS_DENIED_ERROR, MYF(0),
-               "SUPER or SET_ANY_DEFINER");
-    } else if (WSREP(thd)) {
+  if (binlog_requires_super && !sctx->check_access(SUPER_ACL)) {
+    if (WSREP(thd)) {
       /*
         If WSREP is enabled, then we are ALWAYS doing binlog
         replication of some sort, and we always require the SUPER
@@ -444,10 +452,6 @@ bool Sql_cmd_create_trigger::execute(THD *thd) {
     }
     return true;
   }
-
-  if (lex->definer && sctx->can_operate_with(lex->definer, consts::system_user,
-                                             true /* report_error */))
-    return true;
 
 #else
   if (!trust_function_creators && mysql_bin_log.is_open() &&
