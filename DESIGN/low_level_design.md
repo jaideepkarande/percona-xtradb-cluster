@@ -142,20 +142,34 @@ The current Galera view is the input. `wsrep::view` provides:
 
 Election rule (**FR-A2**, deterministic, no extra messaging):
 
+`on_view()` captures the totally-ordered membership under `m_mutex` — whether
+the view is primary, this node's `own_index()`, and the index of the elected
+replica: the **first member with a non-empty incoming address**. Members with an
+empty incoming address (arbitrator / garbd) do not run `mysqld` and are skipped,
+so the coordinator never elects an arbitrator. `compute_election()` then reads
+that cached snapshot:
+
 ```cpp
-bool Wsrep_async_failover::elect_is_self(const wsrep::view &v) const {
-  if (v.status() != wsrep::view::primary) return false;
-  if (v.members().empty()) return false;
-  // Candidate = member with the smallest stable ordering key.
-  // Galera orders members identically on every node, so index 0 is a
-  // cluster-wide agreed choice. Members with empty incoming address
-  // (e.g. arbitrator/garbd) are skipped.
-  size_t elected = SIZE_MAX;
-  for (size_t i = 0; i < v.members().size(); ++i)
-    if (!v.members()[i].incoming().empty()) { elected = i; break; }
-  return elected != SIZE_MAX && elected == (size_t)v.own_index();
-}
+// on_view() — runs in total order, only snapshots + signals the worker
+m_view_primary       = (view.status() == wsrep::view::primary);
+m_view_own_index     = view.own_index();
+m_view_elected_index = -1;
+for (size_t i = 0; i < view.members().size(); ++i)
+  if (!view.members()[i].incoming().empty()) { m_view_elected_index = i; break; }
+
+// compute_election() — m_mutex held by caller
+if (m_view_seen)
+  return m_view_primary && m_view_elected_index >= 0 &&
+         m_view_own_index == m_view_elected_index;
+// fallback until the first view arrives (startup / lone node):
+// use the wsrep_cluster_status / wsrep_local_index globals, index 0.
 ```
+
+Galera orders members identically on every node, so every node computes the same
+`m_view_elected_index` without extra messaging. Until the first view is
+delivered (startup, single node) the coordinator falls back to the
+`wsrep_cluster_status` / `wsrep_cluster_size` / `wsrep_local_index` globals
+maintained by `log_view()`.
 
 `process_receiver()`:
 
@@ -178,35 +192,31 @@ step 4. No leader lease / heartbeat is needed beyond Galera's own membership.
 
 ---
 
-## 5. Driving replication without a SQL client
+## 5. Driving replication from the coordinator THD
 
-Start/stop of the channel uses the in-server **replication channel service
-interface** (`sql/rpl_channel_service_interface.h`), the same API Group
-Replication uses:
+The coordinator owns a single internal `THD` (`create_internal_thd()`,
+`COM_DAEMON`, `wsrep_on=false` so its control statements never replicate). All
+control statements run on that THD through an `Ed_connection`
+(`execute_direct`), wrapped by the small helpers `acf_exec()` (statements),
+`acf_query_scalar()` and `acf_query_rows()` (result sets) at the top of
+`wsrep_async_failover.cc`:
 
-```cpp
-#include "sql/rpl_channel_service_interface.h"
+* **Membership / liveness** is read from `performance_schema` tables directly.
+* **`START REPLICA` / `STOP REPLICA`** (with an optional `FOR CHANNEL`) start and
+  stop the managed channel. Whether the channel is currently running is read via
+  `channel_is_active()` from `sql/rpl_channel_service_interface.h` (the only
+  service-interface entry point the coordinator uses).
+* **`SET GLOBAL super_read_only = ON/OFF`** toggles split-brain protection, so
+  the normal `fix_super_read_only` path executes correctly rather than poking
+  `opt_super_readonly` directly.
 
-Channel_connection_info info;
-initialize_channel_connection_info(&info);
-// start only the threads we need; AUTO_POSITION already on the channel
-int err = channel_start(channel, &info,
-                        CHANNEL_RECEIVER_THREAD | CHANNEL_APPLIER_THREAD,
-                        /*wait_for_connection=*/true);
-...
-channel_stop(channel, CHANNEL_RECEIVER_THREAD | CHANNEL_APPLIER_THREAD,
-             /*timeout=*/...);
-bool running = channel_is_active(channel, CHANNEL_NO_THD);
-```
-
-These functions create/attach their own THD internally and are safe to call
-from the coordinator worker thread.
-
-`super_read_only` is toggled through a small internal helper that runs
-`SET GLOBAL super_read_only = ON/OFF` on the coordinator's THD (mirroring GR's
-`Set_system_variable`), so the normal `fix_super_read_only` path (global read
-lock semantics) executes correctly rather than poking `opt_super_readonly`
-directly.
+The SQL path was chosen over `channel_start()/channel_stop()` because it reuses
+the exact, well-tested privilege/state validation that a DBA's manual
+`START REPLICA` would hit, and keeps the coordinator's surface to a handful of
+statements. Before starting a channel the coordinator verifies it is configured
+**with `SOURCE_AUTO_POSITION=1`** (reads `HOST` and `AUTO_POSITION` from
+`performance_schema.replication_connection_configuration`); a channel without
+auto-positioning is refused and surfaced, never started (**FR-A4**).
 
 ---
 
@@ -232,21 +242,39 @@ diverge from the primary.
 Implemented in `gtid_gate()` and evaluated before every `START REPLICA` on the
 elected node. Policy from `wsrep_async_failover_gtid_check`.
 
-Checks (FR-G2):
+Checks (FR-G2), evaluated in order; the first non-`OK` verdict wins. Every check
+fails **open** on a query error (does not block), so a transient
+`performance_schema` hiccup cannot wedge failover:
 
-1. **Gap detection.** Read `@@GLOBAL.gtid_executed`; for each UUID interval set,
-   detect missing intervals relative to `gtid_purged` continuity. A
-   discontinuity within the cluster's own UUID set is a gap.
-2. **Errant transactions.** Compute
-   `errant = gtid_executed − (cluster_uuid_set ∪ received_via_channel)`.
-   Any GTID originating from neither this cluster nor the managed source is
-   errant. The received set is taken from
+1. **Gap detection (FR-G2a).** Read `@@GLOBAL.gtid_executed` and scan each
+   comma-separated per-UUID set. A UUID carrying more than one interval
+   (e.g. `uuid:1-5:8-10`, i.e. ≥2 `:` separators) has a hole in the middle — a
+   gap. A set that merely *starts* above 1 is **not** a gap (that is the normal
+   result of `gtid_purged` after SST/log rotation). Implemented by
+   `acf_gtid_has_gap()`.
+2. **Xid ↔ GTID_NEXT agreement (FR-G2c), local half.** `XA RECOVER` is run; any
+   in-doubt (prepared-but-not-committed) transaction means the node's Xid/GTID
+   state is mid-flight, and (re)starting a DR replica against it risks the
+   historical PXC GTID inconsistency. Verdict `XID_MISMATCH`. The *full
+   cross-member* comparison (each member's last `Xid` → `GTID_NEXT` must agree)
+   requires a cluster-wide rendezvous and is a **documented follow-up**; the
+   local in-doubt check is the safe, self-contained portion shipped now.
+3. **Errant transactions (FR-G2b).** Compute
+   `errant = gtid_executed − received_via_channel − local_origin_set`
+   using `GTID_SUBTRACT`. Any GTID originating from neither the managed source
+   nor this node is errant. The received set is
    `performance_schema.replication_connection_status.RECEIVED_TRANSACTION_SET`
-   for the managed channel.
-3. **Xid ↔ GTID_NEXT agreement.** Validate that the last committed InnoDB `Xid`
-   maps to the expected `GTID_NEXT` (the historical PXC inconsistency class).
-   In practice this is checked by comparing the binlog/engine recovery GTID with
-   `gtid_executed` at startup; the gate re-verifies it has not regressed.
+   for the managed channel; before the link has delivered anything the check is
+   skipped (verdict `OK`). The **local-origin set is two UUIDs, not one**:
+   `@@server_uuid` (which in PXC carries only the occasional non-wsrep
+   housekeeping GTID) **and** the cluster-wide wsrep GTID UUID
+   `wsrep_cluster_state_uuid`, under which Galera stamps every replicated write
+   on this cluster. Subtracting only `server_uuid` mis-flags the cluster's own
+   workload as errant as soon as the channel has delivered anything (the
+   active-replica / circular case), so both are subtracted. There is **no
+   `wsrep_gtid_mode` in 8.4**; the cluster GTID UUID is always distinct from
+   every node's `server_uuid`. Regression-guarded by
+   `galera.pxc_5201_circular`.
 
 Verdicts: `OK`, `GAP`, `ERRANT`, `XID_MISMATCH`, `SKIPPED`.
 
@@ -270,39 +298,54 @@ coordinator's THD; the heavy lifting reuses server GTID-set primitives
 
 ## 8. Source-side auto-population (Scenario B)
 
-Active on the elected replica node when `wsrep_async_failover_mode` is
-`SOURCE`/`BOTH` on the *primary* cluster and `RECEIVER`/`BOTH` on the DR side
-(typically the symmetric case is configured per cluster: primary=SOURCE,
-DR=RECEIVER, and the *DR* coordinator does the population).
+The ACF managed-group definition and the candidate source list both live on the
+**replica** cluster, so source-list maintenance runs on the **receiver's elected
+node** — `refresh_source_list()` is called from `process_receiver()` when the
+node is elected, independent of the `SOURCE`/`RECEIVER`/`BOTH` mode flags. (A
+cluster configured purely as `SOURCE` is the async primary and holds no local
+ACF list, so it has no per-iteration source action.) This corrects an earlier
+draft that gated the work on `SOURCE` mode, where the primary cluster — which has
+no ACF tables — would have been the one running it.
 
-`process_source()` / the receiver's source-refresh step:
+`refresh_source_list(thd, channel)`:
 
 1. Read the managed group rows for the channel from
    `performance_schema.replication_asynchronous_connection_failover_managed`
-   where `Managed_type='GaleraCluster'`.
-2. For the managed primary cluster, obtain the live healthy membership. Two
-   supported discovery paths:
-   * **Pull**: query the currently-connected source for
-     `SHOW STATUS LIKE 'wsrep_incoming_addresses'` (a comma-separated list of
-     `host:port` of all synced members) over the existing replication
-     credentials. This requires no schema on the source beyond standard PXC.
-   * The list is parsed into `(host, port)` candidates.
-3. Reconcile against
-   `performance_schema.replication_asynchronous_connection_failover` for that
-   `(channel, managed_name)`:
-   * add rows for new members
-     (`Rpl_async_conn_failover_table_operations::add_source_skip_send`),
-   * delete rows for departed members
-     (`...::delete_source`),
-   * keep the currently-connected source at the highest weight so a stable
-     membership does not cause connection flapping (**FR-B5**).
-4. The existing ACF IO thread / `Source_IO_monitor` performs the actual
-   reconnect to a surviving candidate when the current source dies (**FR-B3**).
+   where `MANAGED_TYPE='GaleraCluster'`. If none, return.
+2. Build the **desired** candidate set:
+   * every registered managed-group seed `(HOST, PORT)` is always desired;
+   * in a co-located (`BOTH`) deployment, fold in the live membership published
+     in `wsrep_incoming_addresses` (read from
+     `performance_schema.global_status`), parsed into `(host, port)` pairs by
+     `acf_parse_incoming_addresses()`. This marks the membership as *known*.
+3. **Add** every desired candidate that is missing, via
+   `asynchronous_connection_failover_add_source()` (idempotent).
+4. **Prune** departed members via
+   `asynchronous_connection_failover_delete_source()` — but **only when the live
+   membership is known** (step 2, `BOTH`), so the coordinator never removes a
+   candidate it could not observe.
+5. The existing ACF IO thread / `Source_IO_monitor` performs the actual
+   reconnect to a surviving candidate when the current source dies (**FR-B3**);
+   with equal candidate weights it keeps the current connection while membership
+   is unchanged, avoiding needless flapping (**FR-B5**).
 
-This keeps PXC-5201's new code confined to the coordinator while the proven ACF
-reconnect path does the mechanics. The `GaleraCluster` managed type is what
-tells PXC to use Galera membership discovery instead of GR's
-`performance_schema.replication_group_members`.
+### 8.1 Scope: cross-datacenter membership pull (follow-up)
+
+Full add-**and**-prune reconciliation is delivered for the co-located (`BOTH`)
+case, driven by the locally-published `wsrep_incoming_addresses`. For the
+cross-datacenter case (primary=`SOURCE`, DR=`RECEIVER`), the DR node cannot read
+the *primary* cluster's `wsrep_incoming_addresses` without reaching across the
+WAN, so that path is currently **add-only** (it keeps every registered seed
+present as a candidate and does not prune). The remaining piece — a short-lived,
+timeout-bounded pull of `SHOW STATUS LIKE 'wsrep_incoming_addresses'` from the
+currently-connected source over the replication credentials — is the documented
+follow-up (tracked with the destructive two-cluster tests §2.5 of the testing
+plan). The reconciliation engine (add/prune, `desired` vs `current`) is already
+in place and is exercised by the `BOTH`-mode path, so the follow-up only has to
+feed it the remote address list.
+
+The `GaleraCluster` managed type is what tells PXC to use Galera membership
+discovery instead of GR's `performance_schema.replication_group_members`.
 
 ### 8.1 UDF change
 

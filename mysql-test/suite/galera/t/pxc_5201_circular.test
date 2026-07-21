@@ -1,0 +1,219 @@
+# ==== Purpose ====
+# PXC-5201: circular (bi-directional) asynchronous replication between two
+# independent PXC clusters must NOT loop transactions back onto their origin.
+#
+# A statement executed on D1 (e.g. CREATE TABLE c1 / INSERT INTO c1 VALUES(1))
+# replicates D1 -> D2, is re-logged on D2 preserving its origin GTID, and MUST
+# NOT come back D2 -> D1 to fail with "table already exists" (ER 1050) or
+# "Duplicate entry" (ER 1062). Loop-back suppression is a GTID property; this
+# feature mandates the config that makes it work:
+#
+#   * AS-1  : gtid_mode=ON, enforce_gtid_consistency=ON on both clusters.
+#   * FR-A4 : the coordinator only issues START REPLICA when the channel is
+#             configured with SOURCE_AUTO_POSITION=1 (verified below by letting
+#             the coordinator, not the test, start each inbound channel).
+#   * FR-G2b: the errant-transaction gate must stay OK under a circular flow.
+#             In PXC the local cluster stamps its writes with the cluster-wide
+#             wsrep GTID UUID (wsrep_cluster_state_uuid), NOT @@server_uuid, so
+#             the gate must treat that UUID as local origin. This test is the
+#             regression guard for that fix -- with the naive server_uuid-only
+#             subtraction the verdict here is ERRANT.
+#
+# The topology (see pxc_5201_circular.cnf) is two single-node clusters, so the
+# per-cluster election is trivial (the sole node, index 0) and the test isolates
+# the loop-back behaviour rather than receiver failover.
+# ==================
+--source include/have_wsrep_provider.inc
+--source include/have_log_bin.inc
+# Two independent galera clusters cross-linked by async replication leave the
+# servers in a complex state; restart them clean afterwards (the convention the
+# sibling galera async tests follow).
+--source include/force_restart.inc
+
+--connect (d1, 127.0.0.1, root, , test, $SERVER_MYPORT_1)
+--connect (d2, 127.0.0.1, root, , test, $SERVER_MYPORT_2)
+
+--connection d1
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\]");
+CALL mtr.add_suppression("Pending to replicate MySQL GTID event");
+CALL mtr.add_suppression("Storing MySQL user name or password information");
+SET SESSION sql_log_bin = 1;
+--connection d2
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\]");
+CALL mtr.add_suppression("Pending to replicate MySQL GTID event");
+CALL mtr.add_suppression("Storing MySQL user name or password information");
+SET SESSION sql_log_bin = 1;
+
+--echo #
+--echo # Setup: configure the inbound channel on each side with auto-positioning,
+--echo # but do NOT start it -- the coordinator will (proving the FR-A4 guard is
+--echo # satisfied and that START REPLICA is driven by BOTH mode).
+--echo #   D2 receives 'a2b' from D1;  D1 receives 'b2a' from D2.
+--echo #
+--connection d2
+--disable_warnings
+--eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$SERVER_MYPORT_1, SOURCE_USER='root', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'a2b'
+--enable_warnings
+
+--connection d1
+--disable_warnings
+--eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$SERVER_MYPORT_2, SOURCE_USER='root', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'b2a'
+--enable_warnings
+
+--echo #
+--echo # Enable the coordinator in BOTH mode on both clusters. read_only OFF so
+--echo # the test can write on both sides (active-active); default ENFORCE gate.
+--echo #
+--connection d1
+SET GLOBAL wsrep_async_failover_check_interval = 1;
+SET GLOBAL wsrep_async_failover_read_only = OFF;
+SET GLOBAL wsrep_async_failover_channel = 'b2a';
+SET GLOBAL wsrep_async_failover_mode = 'BOTH';
+SET GLOBAL wsrep_async_failover = ON;
+
+--connection d2
+SET GLOBAL wsrep_async_failover_check_interval = 1;
+SET GLOBAL wsrep_async_failover_read_only = OFF;
+SET GLOBAL wsrep_async_failover_channel = 'a2b';
+SET GLOBAL wsrep_async_failover_mode = 'BOTH';
+SET GLOBAL wsrep_async_failover = ON;
+
+--echo #
+--echo # The coordinator starts each inbound channel (IO + applier ON).
+--echo #
+--connection d1
+--let $wait_condition= SELECT COUNT(*)=1 FROM performance_schema.replication_connection_status WHERE CHANNEL_NAME='b2a' AND SERVICE_STATE='ON'
+--source include/wait_condition.inc
+--let $wait_condition= SELECT COUNT(*)>=1 FROM performance_schema.replication_applier_status_by_worker WHERE CHANNEL_NAME='b2a' AND SERVICE_STATE='ON'
+--source include/wait_condition.inc
+
+--connection d2
+--let $wait_condition= SELECT COUNT(*)=1 FROM performance_schema.replication_connection_status WHERE CHANNEL_NAME='a2b' AND SERVICE_STATE='ON'
+--source include/wait_condition.inc
+--let $wait_condition= SELECT COUNT(*)>=1 FROM performance_schema.replication_applier_status_by_worker WHERE CHANNEL_NAME='a2b' AND SERVICE_STATE='ON'
+--source include/wait_condition.inc
+
+--echo #
+--echo # ==== Core: a write on D1 must reach D2 and must NOT loop back to D1. ====
+--echo #
+--connection d1
+CREATE TABLE c1 (a INT PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO c1 VALUES (1);
+
+--echo # D2 receives c1 with exactly one row.
+--connection d2
+--let $wait_condition= SELECT COUNT(*)=1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='test' AND TABLE_NAME='c1'
+--source include/wait_condition.inc
+--let $wait_condition= SELECT COUNT(*)=1 FROM test.c1
+--source include/wait_condition.inc
+SELECT COUNT(*) AS c1_rows_on_d2 FROM test.c1;
+
+--echo #
+--echo # ==== Symmetric: a write on D2 must reach D1 and must NOT loop back. ====
+--echo #
+--connection d2
+CREATE TABLE c2 (a INT PRIMARY KEY) ENGINE=InnoDB;
+INSERT INTO c2 VALUES (1);
+
+--connection d1
+--let $wait_condition= SELECT COUNT(*)=1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='test' AND TABLE_NAME='c2'
+--source include/wait_condition.inc
+--let $wait_condition= SELECT COUNT(*)=1 FROM test.c2
+--source include/wait_condition.inc
+SELECT COUNT(*) AS c2_rows_on_d1 FROM test.c2;
+
+--echo #
+--echo # Give any (erroneous) loop-back a chance to arrive before we assert its
+--echo # absence: run one more round trip and settle.
+--echo #
+--connection d1
+INSERT INTO c1 VALUES (2);
+--connection d2
+INSERT INTO c2 VALUES (2);
+--connection d1
+--let $wait_condition= SELECT COUNT(*)=2 FROM test.c2
+--source include/wait_condition.inc
+--connection d2
+--let $wait_condition= SELECT COUNT(*)=2 FROM test.c1
+--source include/wait_condition.inc
+
+--echo #
+--echo # ==== Assertions: no loop-back failure on either origin. ====
+--echo # The origin's own rows are NOT duplicated (INSERT not re-applied) and the
+--echo # inbound applier carries NO error (no 1050 'table exists', no 1062
+--echo # 'duplicate entry'), and both threads are still ON.
+--echo #
+--connection d1
+SELECT COUNT(*) AS c1_rows_on_origin_d1 FROM test.c1;   # own table: 2, not re-applied
+SELECT SERVICE_STATE AS io_state_b2a
+  FROM performance_schema.replication_connection_status WHERE CHANNEL_NAME='b2a';
+SELECT SERVICE_STATE AS applier_state_b2a, LAST_ERROR_NUMBER AS applier_errno_b2a
+  FROM performance_schema.replication_applier_status_by_coordinator WHERE CHANNEL_NAME='b2a';
+SELECT COUNT(*) AS worker_errors_b2a
+  FROM performance_schema.replication_applier_status_by_worker
+ WHERE CHANNEL_NAME='b2a' AND LAST_ERROR_NUMBER <> 0;
+SELECT GTID_CONSISTENCY AS gtid_verdict_d1
+  FROM performance_schema.wsrep_async_failover_status;
+
+--connection d2
+SELECT COUNT(*) AS c2_rows_on_origin_d2 FROM test.c2;   # own table: 2, not re-applied
+SELECT SERVICE_STATE AS io_state_a2b
+  FROM performance_schema.replication_connection_status WHERE CHANNEL_NAME='a2b';
+SELECT SERVICE_STATE AS applier_state_a2b, LAST_ERROR_NUMBER AS applier_errno_a2b
+  FROM performance_schema.replication_applier_status_by_coordinator WHERE CHANNEL_NAME='a2b';
+SELECT COUNT(*) AS worker_errors_a2b
+  FROM performance_schema.replication_applier_status_by_worker
+ WHERE CHANNEL_NAME='a2b' AND LAST_ERROR_NUMBER <> 0;
+SELECT GTID_CONSISTENCY AS gtid_verdict_d2
+  FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # Cleanup. Drop the seed tables while replication is still live so both
+--echo # sides converge, THEN tear the coordinator and channels down.
+--echo #
+--connection d1
+DROP TABLE c1;
+--connection d2
+DROP TABLE c2;
+--connection d1
+--let $wait_condition= SELECT COUNT(*)=0 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='test' AND TABLE_NAME IN ('c1','c2')
+--source include/wait_condition.inc
+--connection d2
+--let $wait_condition= SELECT COUNT(*)=0 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='test' AND TABLE_NAME IN ('c1','c2')
+--source include/wait_condition.inc
+
+--connection d1
+SET GLOBAL wsrep_async_failover = OFF;
+SET GLOBAL wsrep_async_failover_mode = 'OFF';
+SET GLOBAL wsrep_async_failover_channel = '';
+SET GLOBAL wsrep_async_failover_read_only = ON;
+SET GLOBAL wsrep_async_failover_check_interval = 5;
+STOP REPLICA FOR CHANNEL 'b2a';
+RESET REPLICA ALL FOR CHANNEL 'b2a';
+
+--connection d2
+SET GLOBAL wsrep_async_failover = OFF;
+SET GLOBAL wsrep_async_failover_mode = 'OFF';
+SET GLOBAL wsrep_async_failover_channel = '';
+SET GLOBAL wsrep_async_failover_read_only = ON;
+SET GLOBAL wsrep_async_failover_check_interval = 5;
+STOP REPLICA FOR CHANNEL 'a2b';
+RESET REPLICA ALL FOR CHANNEL 'a2b';
+
+--connection d1
+--disable_query_log
+SET SESSION wsrep_on=OFF;
+RESET BINARY LOGS AND GTIDS;
+SET SESSION wsrep_on=ON;
+--enable_query_log
+--connection d2
+--disable_query_log
+SET SESSION wsrep_on=OFF;
+RESET BINARY LOGS AND GTIDS;
+SET SESSION wsrep_on=ON;
+--enable_query_log
+
+--disconnect d1
+--disconnect d2

@@ -1,0 +1,39 @@
+# ==== Purpose ====
+# PXC-5201: with the feature disabled (the default) the coordinator is inert.
+#
+#   * FR-C2: wsrep_async_failover defaults OFF.
+#   * NFR-5: no coordinator thread exists, super_read_only is untouched, and
+#     ordinary DML/DDL behaves exactly as on a baseline build.
+# ==================
+--source include/have_wsrep_provider.inc
+
+--echo #
+--echo # 1. The feature is OFF by default (FR-C2).
+--echo #
+SELECT @@GLOBAL.wsrep_async_failover;
+
+--echo #
+--echo # 2. No coordinator thread is running while disabled (NFR-5, NFR-6).
+--echo #
+SELECT COUNT(*) AS acf_threads
+  FROM performance_schema.threads
+ WHERE NAME LIKE '%wsrep_async_failover%';
+
+--echo #
+--echo # 3. The status table reports the disabled state.
+--echo #
+SELECT ENABLED, IS_ACTIVE_REPLICA
+  FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 4. super_read_only is not touched by the disabled coordinator.
+--echo #
+SELECT @@GLOBAL.super_read_only;
+
+--echo #
+--echo # 5. Ordinary DDL/DML behaves as baseline.
+--echo #
+CREATE TABLE t1 (a INT) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+SELECT COUNT(*) FROM t1;
+DROP TABLE t1;

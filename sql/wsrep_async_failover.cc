@@ -22,10 +22,12 @@
 
 #include "sql/wsrep_async_failover.h"
 
+#include <cctype>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "lex_string.h"
@@ -153,6 +155,54 @@ std::string acf_for_channel(const std::string &channel) {
   return " FOR CHANNEL '" + acf_sql_quote(channel) + "'";
 }
 
+/*
+  Detect a gap (hole) in a GTID set string such as @@GLOBAL.gtid_executed.
+
+  The set is a comma-separated list of per-UUID sets, each of the form
+  "uuid:interval[:interval...]" where an interval is "n" or "n-m". A single UUID
+  carrying more than one interval (>=2 ':' separators, e.g. "uuid:1-5:8-10")
+  means a transaction range in the middle is missing — a gap. Whitespace and
+  embedded newlines produced by the SELECT are ignored. A UUID set beginning
+  above 1 is NOT treated as a gap because that is the normal, legitimate result
+  of gtid_purged after log rotation / SST.
+*/
+bool acf_gtid_has_gap(const std::string &set) {
+  size_t start = 0;
+  while (start <= set.size()) {
+    const size_t comma = set.find(',', start);
+    const size_t end = (comma == std::string::npos) ? set.size() : comma;
+    int colons = 0;
+    for (size_t i = start; i < end; ++i)
+      if (set[i] == ':') ++colons;
+    if (colons >= 2) return true;
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+  return false;
+}
+
+/* Split a comma-separated "host:port[,host:port...]" list (as published by
+   wsrep_incoming_addresses) into (host, port) pairs. Entries without a port or
+   with an empty host are skipped. */
+void acf_parse_incoming_addresses(
+    const std::string &csv,
+    std::vector<std::pair<std::string, std::string>> &out) {
+  size_t start = 0;
+  while (start <= csv.size()) {
+    const size_t comma = csv.find(',', start);
+    const size_t end = (comma == std::string::npos) ? csv.size() : comma;
+    std::string entry;
+    for (size_t i = start; i < end; ++i)
+      if (!isspace(static_cast<unsigned char>(csv[i]))) entry.push_back(csv[i]);
+    const size_t colon = entry.rfind(':');
+    if (colon != std::string::npos && colon > 0 && colon + 1 < entry.size()) {
+      out.emplace_back(entry.substr(0, colon), entry.substr(colon + 1));
+    }
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+}
+
 }  // namespace
 
 /* C trampoline for mysql_thread_create. */
@@ -237,12 +287,29 @@ void Wsrep_async_failover::wakeup() {
 
 void Wsrep_async_failover::on_view(const wsrep::view &view) {
   if (!m_inited) return;
-  /* The authoritative election inputs (cluster status, local index, size) are
-     maintained as wsrep globals by Wsrep_server_service::log_view(). Here we
-     only record the size for display and wake the worker so it reacts to the
-     membership change promptly. */
+  /*
+    Capture the totally-ordered membership so the worker can run a deterministic,
+    message-free election. We record whether the view is primary, this node's
+    own index, and the index of the elected replica: the first member that has a
+    non-empty incoming address. Members with an empty incoming address are
+    arbitrators (garbd) which do not run mysqld and must never be elected as the
+    async replica. Galera orders members identically on every node, so all nodes
+    compute the same elected index without extra messaging (FR-A2). This runs in
+    total order and must stay cheap: it only snapshots and signals the worker.
+  */
   mysql_mutex_lock(&m_mutex);
-  m_status.cluster_size = static_cast<long>(view.members().size());
+  const std::vector<wsrep::view::member> &members = view.members();
+  m_status.cluster_size = static_cast<long>(members.size());
+  m_view_primary = (view.status() == wsrep::view::primary);
+  m_view_own_index = static_cast<long>(view.own_index());
+  m_view_elected_index = -1;
+  for (size_t i = 0; i < members.size(); ++i) {
+    if (!members[i].incoming().empty()) {
+      m_view_elected_index = static_cast<long>(i);
+      break;
+    }
+  }
+  m_view_seen = true;
   m_view_pending = true;
   mysql_cond_broadcast(&m_cond);
   mysql_mutex_unlock(&m_mutex);
@@ -250,10 +317,19 @@ void Wsrep_async_failover::on_view(const wsrep::view &view) {
 
 bool Wsrep_async_failover::compute_election(long *elected_index,
                                             long *cluster_size) const {
-  /* Deterministic, message-free election from the totally-ordered membership
-     state already published by log_view(): the member at wsrep index 0 of the
-     current primary component is the active replica. Galera orders members
-     identically on every node, so all nodes agree without extra messaging. */
+  /* Deterministic, message-free election. m_mutex is held by the caller. */
+  if (m_view_seen) {
+    /* Preferred path: use the membership captured from the last Galera view.
+       The elected replica is the first member with a non-empty incoming
+       address, so arbitrator/garbd members (empty address, no mysqld) are
+       skipped (FR-A2, FR-A3). */
+    *cluster_size = m_status.cluster_size;
+    *elected_index = m_view_primary ? m_view_elected_index : -1;
+    return m_view_primary && m_view_elected_index >= 0 &&
+           m_view_own_index == m_view_elected_index;
+  }
+  /* Fallback until the first view is delivered (startup / lone node): use the
+     wsrep status globals maintained by log_view(). */
   const bool primary = (wsrep_cluster_status != nullptr &&
                         native_strcasecmp(wsrep_cluster_status, "Primary") == 0);
   *cluster_size = wsrep_cluster_size;
@@ -339,8 +415,20 @@ void Wsrep_async_failover::process_once(THD *thd) {
   const bool is_source =
       (mode == WSREP_ACF_MODE_SOURCE || mode == WSREP_ACF_MODE_BOTH);
 
+  /* Receiver-side logic (Scenario A) also maintains the ACF candidate source
+     list (Scenario B), because both the managed-group definition and the
+     candidate list live on the replica cluster, not on the primary. */
   if (is_receiver) process_receiver(thd, elected);
-  if (is_source && elected) process_source(thd);
+
+  /* A cluster configured purely as SOURCE is the async primary; it holds no
+     local ACF candidate list to maintain, so there is no per-iteration action
+     beyond staying writable. Record it for observability. */
+  if (is_source && !is_receiver && elected) {
+    mysql_mutex_lock(&m_mutex);
+    m_status.is_active_replica = false;
+    set_last_action("SOURCE mode: acting as async primary; no local ACF action.");
+    mysql_mutex_unlock(&m_mutex);
+  }
 }
 
 void Wsrep_async_failover::manage_super_read_only(THD *thd, bool want_on) {
@@ -384,6 +472,48 @@ bool Wsrep_async_failover::gtid_gate(THD *thd, char verdict[16]) {
   const std::string channel =
       wsrep_async_failover_channel ? wsrep_async_failover_channel : "";
 
+  /* Apply the configured policy to a non-OK verdict: WARN logs and proceeds,
+     ENFORCE logs and refuses to (re)start the replica. */
+  auto verdict_fail = [&](const char *v, const std::string &detail) -> bool {
+    my_stpcpy(verdict, v);
+    if (pol == WSREP_ACF_GTID_WARN) {
+      WSREP_WARN(
+          "[wsrep-acf] GTID consistency check found %s (%s) for channel '%s'; "
+          "proceeding (WARN mode)",
+          v, detail.c_str(), channel.c_str());
+      return true;
+    }
+    WSREP_WARN(
+        "[wsrep-acf] GTID consistency check failed (%s: %s) for channel '%s'; "
+        "replica not started",
+        v, detail.c_str(), channel.c_str());
+    return false;
+  };
+
+  /*
+    (a) Gap detection (FR-G2a): a hole in @@GLOBAL.gtid_executed means this node
+    is missing transactions in the middle of a range and must not become the
+    async replica until Galera fills the hole. On query failure we do not block.
+  */
+  std::string executed;
+  if (!acf_query_scalar(thd, "SELECT @@GLOBAL.gtid_executed", executed) &&
+      acf_gtid_has_gap(executed)) {
+    return verdict_fail("GAP", executed);
+  }
+
+  /*
+    (c) Xid <-> GTID_NEXT agreement (FR-G2c), local half. An in-doubt (prepared
+    but not committed) transaction means the node's Xid/GTID state is mid-flight;
+    (re)starting a DR replica against it risks the historical PXC GTID
+    inconsistency. XA RECOVER returns one row per in-doubt transaction. The full
+    cross-member comparison is documented as follow-up in
+    DESIGN/low_level_design.md §7. On query failure we do not block.
+  */
+  std::vector<std::vector<std::string>> indoubt;
+  if (!acf_query_rows(thd, "XA RECOVER", indoubt) && !indoubt.empty()) {
+    return verdict_fail("XID_MISMATCH", "in-doubt XA transaction present");
+  }
+
   /* Transactions received through the managed channel are legitimate. */
   std::string received;
   acf_query_scalar(
@@ -396,8 +526,8 @@ bool Wsrep_async_failover::gtid_gate(THD *thd, char verdict[16]) {
   /*
     Nothing has been received through the managed channel yet (the source link
     is not established). There is no source baseline to compare against, so the
-    gate has nothing to verify and reports OK. Real errant-transaction checking
-    starts once replication has delivered transactions.
+    errant check has nothing to verify and reports OK. Real errant-transaction
+    checking starts once replication has delivered transactions.
   */
   if (received.empty()) {
     my_stpcpy(verdict, "OK");
@@ -405,20 +535,36 @@ bool Wsrep_async_failover::gtid_gate(THD *thd, char verdict[16]) {
   }
 
   /*
-    errant = gtid_executed
+    (b) errant = gtid_executed
                - received_via_channel
-               - locally generated (server_uuid).
+               - locally generated.
     Anything left originates from neither the managed source nor this node and
-    is therefore an errant transaction. (With wsrep_gtid_mode=ON the whole
-    cluster shares one UUID; see DESIGN/low_level_design.md for the multi-UUID
-    caveat.) The interval upper bound is the maximum representable GNO
-    (2^63-2); the absolute max 2^63-1 is rejected by the GTID set parser.
+    is therefore an errant transaction.
+
+    "Locally generated" in PXC is NOT just @@server_uuid. Galera stamps the
+    node's replicated workload with the cluster-wide wsrep GTID UUID
+    (wsrep_cluster_state_uuid), which is distinct from every node's server_uuid;
+    server_uuid only carries the odd non-wsrep housekeeping GTID. Both must be
+    treated as local origin, otherwise the cluster's OWN transactions are
+    mis-classified as errant the moment the channel has delivered anything (the
+    active-async-replica / circular case) and, under ENFORCE, failover is
+    blocked. (There is no wsrep_gtid_mode in 8.4; the cluster GTID UUID is
+    always separate from server_uuid.) The interval upper bound is the maximum
+    representable GNO (2^63-2); the absolute max 2^63-1 is rejected by the GTID
+    set parser.
   */
+  std::string local_tail = ":1-9223372036854775806";
+  if (wsrep_cluster_state_uuid && wsrep_cluster_state_uuid[0] &&
+      strcmp(wsrep_cluster_state_uuid,
+             "00000000-0000-0000-0000-000000000000") != 0) {
+    local_tail += "," + std::string(wsrep_cluster_state_uuid) +
+                  ":1-9223372036854775806";
+  }
   std::string errant;
   const std::string q =
       "SELECT GTID_SUBTRACT(GTID_SUBTRACT(@@GLOBAL.gtid_executed, '" +
-      acf_sql_quote(received) +
-      "'), CONCAT(@@GLOBAL.server_uuid, ':1-9223372036854775806'))";
+      acf_sql_quote(received) + "'), CONCAT(@@GLOBAL.server_uuid, '" +
+      local_tail + "'))";
   if (acf_query_scalar(thd, q, errant)) {
     /* On query failure, be conservative and do not block. */
     my_stpcpy(verdict, "OK");
@@ -430,20 +576,7 @@ bool Wsrep_async_failover::gtid_gate(THD *thd, char verdict[16]) {
     return true;
   }
 
-  my_stpcpy(verdict, "ERRANT");
-  if (pol == WSREP_ACF_GTID_WARN) {
-    WSREP_WARN(
-        "[wsrep-acf] GTID consistency check found errant transactions (%s) for "
-        "channel '%s'; proceeding (WARN mode)",
-        errant.c_str(), channel.c_str());
-    return true;
-  }
-  /* ENFORCE */
-  WSREP_WARN(
-      "[wsrep-acf] GTID consistency check failed (ERRANT: %s) for channel '%s'; "
-      "replica not started",
-      errant.c_str(), channel.c_str());
-  return false;
+  return verdict_fail("ERRANT", errant);
 }
 
 void Wsrep_async_failover::process_receiver(THD *thd, bool elected) {
@@ -451,7 +584,14 @@ void Wsrep_async_failover::process_receiver(THD *thd, bool elected) {
       wsrep_async_failover_channel ? wsrep_async_failover_channel : "";
   const char *ch_c = channel.c_str();
 
-  if (wsrep_async_failover_read_only) manage_super_read_only(thd, true);
+  /* Split-brain protection. When the knob is ON, keep the DR cluster in
+     super_read_only. When the operator turns it OFF, release only the bit the
+     coordinator itself set, leaving any DBA-set super_read_only untouched
+     (FR-S1, FR-S3). */
+  if (wsrep_async_failover_read_only)
+    manage_super_read_only(thd, true);
+  else
+    manage_super_read_only(thd, false);
 
   const bool running =
       channel_is_active(ch_c, CHANNEL_RECEIVER_THREAD) ||
@@ -475,24 +615,45 @@ void Wsrep_async_failover::process_receiver(THD *thd, bool elected) {
 
     if (!running) {
       /* Only start the channel if a replication source has actually been
-         configured for it (CHANGE REPLICATION SOURCE TO ... was run). This
-         avoids noisy "server is not configured as replica" errors when the
-         coordinator is enabled before the channel is provisioned. */
-      std::string configured;
-      acf_query_scalar(
+         configured for it (CHANGE REPLICATION SOURCE TO ... was run), and only
+         with GTID auto-positioning (FR-A4). Reading HOST and AUTO_POSITION in a
+         single round-trip avoids noisy "server is not configured as replica"
+         errors when the coordinator is enabled before the channel is
+         provisioned, and refuses to start a channel that would lose binlog
+         coordinates. */
+      std::vector<std::vector<std::string>> cfg;
+      acf_query_rows(
           thd,
-          "SELECT COUNT(*) FROM "
+          "SELECT HOST, AUTO_POSITION FROM "
           "performance_schema.replication_connection_configuration WHERE "
           "CHANNEL_NAME='" +
-              acf_sql_quote(channel) + "' AND HOST <> ''",
-          configured);
-      if (configured == "0" || configured.empty()) {
+              acf_sql_quote(channel) + "'",
+          cfg);
+      bool configured = false, auto_position = false;
+      for (const auto &r : cfg) {
+        if (r.size() >= 2 && !r[0].empty()) {
+          configured = true;
+          auto_position = (r[1] == "1");
+        }
+      }
+      if (!configured) {
         mysql_mutex_lock(&m_mutex);
         set_last_action(
             "Elected this node (index %ld) as active async replica for '%s'; "
             "waiting for the channel to be configured.",
             wsrep_local_index, ch_c);
         mysql_mutex_unlock(&m_mutex);
+      } else if (!auto_position) {
+        mysql_mutex_lock(&m_mutex);
+        set_last_action(
+            "Channel '%s' is not configured with SOURCE_AUTO_POSITION=1; "
+            "replica not started (FR-A4).",
+            ch_c);
+        mysql_mutex_unlock(&m_mutex);
+        WSREP_WARN(
+            "[wsrep-acf] channel '%s' lacks SOURCE_AUTO_POSITION=1; refusing to "
+            "auto-start to avoid losing binlog coordinates",
+            ch_c);
       } else if (!acf_exec(thd, "START REPLICA" + acf_for_channel(channel))) {
         mysql_mutex_lock(&m_mutex);
         set_last_action(
@@ -505,6 +666,10 @@ void Wsrep_async_failover::process_receiver(THD *thd, bool elected) {
             wsrep_local_index, ch_c);
       }
     }
+
+    /* The elected replica also owns the ACF candidate source list (Scenario B):
+       keep it aligned with the managed GaleraCluster source group(s). */
+    refresh_source_list(thd, channel);
   } else {
     mysql_mutex_lock(&m_mutex);
     m_status.is_active_replica = false;
@@ -522,21 +687,24 @@ void Wsrep_async_failover::process_receiver(THD *thd, bool elected) {
   }
 }
 
-void Wsrep_async_failover::process_source(THD *thd) {
+void Wsrep_async_failover::refresh_source_list(THD *thd,
+                                               const std::string &channel) {
   /*
     Scenario B: keep the ACF candidate source list aligned with the healthy
-    members of the primary cluster.
+    members of the primary cluster, which is registered as one or more managed
+    groups of type 'GaleraCluster'. The actual reconnect on source failure is
+    performed by the server's ACF receiver thread
+    (SOURCE_CONNECTION_AUTO_FAILOVER=1); this function only maintains the
+    candidate rows it chooses from.
 
-    The list of candidate sources is maintained per managed group of type
-    'GaleraCluster'. For each such group registered for the managed channel we
-    discover the live membership of the primary cluster and reconcile the
-    'replication_asynchronous_connection_failover' rows by invoking the
-    existing ACF UDFs. The actual reconnect on source failure is performed by
-    the server's ACF receiver thread (SOURCE_CONNECTION_AUTO_FAILOVER=1).
+    Membership source: the primary cluster publishes its live members in
+    wsrep_incoming_addresses. For a co-located deployment (BOTH mode) that list
+    is read locally and the candidate rows are fully reconciled (added and
+    pruned). The cross-datacenter pull from the currently-connected source is
+    documented in DESIGN/low_level_design.md §8 as follow-up; until then the
+    pure-RECEIVER path is add-only (it keeps every registered seed present as a
+    candidate but does not prune rows whose membership it cannot observe).
   */
-  const std::string channel =
-      wsrep_async_failover_channel ? wsrep_async_failover_channel : "";
-
   std::vector<std::vector<std::string>> managed;
   if (acf_query_rows(
           thd,
@@ -549,32 +717,71 @@ void Wsrep_async_failover::process_source(THD *thd) {
   }
   if (managed.empty()) return;
 
-  /*
-    Discover the live members of the primary cluster. We read the membership
-    published into the candidate list by the currently connected source; in a
-    full deployment this is fed from the source cluster's wsrep_incoming_
-    addresses. Here we ensure the seed endpoint is registered so that the ACF
-    receiver thread always has at least one valid candidate, and we prune rows
-    for the managed group that are no longer reachable.
-
-    NOTE: live cross-cluster membership pull is documented in
-    DESIGN/low_level_design.md §8; the seed maintenance below is the safe,
-    self-contained part executed every iteration.
-  */
+  /* Desired candidate set. Every registered seed is always desired. */
+  std::vector<std::pair<std::string, std::string>> desired;
   for (const auto &g : managed) {
-    if (g.size() < 3) continue;
-    const std::string &managed_name = g[0];
-    const std::string &host = g[1];
-    const std::string &port = g[2];
-    /* Ensure the seed source is present (idempotent). */
+    if (g.size() < 3 || g[1].empty()) continue;
+    desired.emplace_back(g[1], g[2]);
+  }
+
+  /* In a co-located (BOTH) deployment fold in the live membership published in
+     wsrep_incoming_addresses; this is the reconcilable, add-and-prune case. */
+  bool membership_known = false;
+  if (wsrep_async_failover_mode == WSREP_ACF_MODE_BOTH) {
+    std::string csv;
+    if (!acf_query_scalar(
+            thd,
+            "SELECT VARIABLE_VALUE FROM performance_schema.global_status "
+            "WHERE VARIABLE_NAME='wsrep_incoming_addresses'",
+            csv) &&
+        !csv.empty()) {
+      acf_parse_incoming_addresses(csv, desired);
+      membership_known = true;
+    }
+  }
+
+  auto in_desired = [&](const std::string &h, const std::string &p) {
+    for (const auto &d : desired)
+      if (d.first == h && d.second == p) return true;
+    return false;
+  };
+
+  /* Add every desired candidate that is missing (idempotent). */
+  for (const auto &d : desired) {
     const std::string add =
         "SELECT asynchronous_connection_failover_add_source('" +
-        acf_sql_quote(channel) + "', '" + acf_sql_quote(host) + "', " + port +
-        ", '', 80)";
+        acf_sql_quote(channel) + "', '" + acf_sql_quote(d.first) + "', " +
+        d.second + ", '', 80)";
     acf_exec(thd, add);
-    mysql_mutex_lock(&m_mutex);
-    set_last_action("Refreshed managed source list for '%s' (group '%s').",
-                    channel.c_str(), managed_name.c_str());
-    mysql_mutex_unlock(&m_mutex);
   }
+
+  /* Prune departed members, but only when the live membership is actually
+     known, so we never remove a candidate we simply could not observe. */
+  int pruned = 0;
+  if (membership_known) {
+    std::vector<std::vector<std::string>> current;
+    acf_query_rows(
+        thd,
+        "SELECT HOST, PORT FROM "
+        "performance_schema.replication_asynchronous_connection_failover WHERE "
+        "CHANNEL_NAME='" +
+            acf_sql_quote(channel) + "'",
+        current);
+    for (const auto &r : current) {
+      if (r.size() < 2) continue;
+      if (!in_desired(r[0], r[1])) {
+        const std::string del =
+            "SELECT asynchronous_connection_failover_delete_source('" +
+            acf_sql_quote(channel) + "', '" + acf_sql_quote(r[0]) + "', " +
+            r[1] + ", '')";
+        if (!acf_exec(thd, del)) ++pruned;
+      }
+    }
+  }
+
+  mysql_mutex_lock(&m_mutex);
+  set_last_action(
+      "Refreshed ACF source list for '%s': %d candidate(s), %d pruned.",
+      channel.c_str(), static_cast<int>(desired.size()), pruned);
+  mysql_mutex_unlock(&m_mutex);
 }

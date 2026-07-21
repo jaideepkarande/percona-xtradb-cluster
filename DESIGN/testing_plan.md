@@ -15,14 +15,19 @@ crash/kill timing matters, `--source include/big_test.inc`.
 
 | Test name | Requirement(s) | Type | Summary |
 |-----------|----------------|------|---------|
-| `pxc_5201_basic` | FR-C1..C4, NFR-5 | functional | Variables exist, defaults, dynamic set/persist, coordinator starts/stops, P_S table present. |
-| `pxc_5201_managed_type` | FR-B4 | functional | `asynchronous_connection_failover_add_managed` accepts `GaleraCluster`; rejects garbage; `GroupReplication` still works. |
-| `pxc_5201_election` | FR-A1,A2,A6 | functional | In a multi-node wsrep set, exactly one node reports `IS_ACTIVE_REPLICA=YES`; deterministic across nodes. |
-| `pxc_5201_receiver_failover` | FR-A3,A4,A5 | functional/destructive | Kill the active replica node; another node resumes the channel and data flows. |
-| `pxc_5201_source_failover` | FR-B1,B2,B3,B5 | functional/destructive | Source list tracks primary membership; killing the connected source relocates the connection. |
-| `pxc_5201_super_read_only` | FR-S1,S2,S3 | functional | DR cluster is `super_read_only`; applier still applies; disabling the knob releases only the managed bit. |
-| `pxc_5201_gtid_consistency` | FR-G1..G4 | functional | Injected gap/errant ⇒ blocked in ENFORCE, warns in WARN, skipped in OFF; verdict visible. |
-| `pxc_5201_disabled_noop` | FR-C2, NFR-5 | regression | With feature OFF, behaviour identical to baseline; no coordinator thread. |
+| `pxc_5201_basic` | FR-C1..C4, NFR-5 | functional | **shipped** — Variables exist, defaults, dynamic set/persist, coordinator starts/stops, P_S table present. |
+| `pxc_5201_managed_type` | FR-B4 | functional | **shipped** — `asynchronous_connection_failover_add_managed` accepts `GaleraCluster`; rejects garbage; `GroupReplication` still works. |
+| `pxc_5201_super_read_only` | FR-S1,S3 | functional | **shipped** — DR node is `super_read_only`; write refused; disabling the knob releases only the coordinator-set bit; a DBA-set bit is untouched. |
+| `pxc_5201_gtid_consistency` | FR-G1,G3,G4 | functional | **shipped** — OFF ⇒ `SKIPPED`; WARN/ENFORCE on a clean node ⇒ `OK`; verdict visible. |
+| `pxc_5201_source_list` | FR-B1,B2,B4 | functional | **shipped** — in `BOTH` mode the coordinator reconciles the ACF candidate list against `wsrep_incoming_addresses`: a live member is kept, a stale candidate is pruned. |
+| `pxc_5201_disabled_noop` | FR-C2, NFR-5 | regression | **shipped** — With feature OFF, behaviour identical to baseline; no coordinator thread; `super_read_only` untouched. |
+| `pxc_5201_election` | FR-A1,A2,A6 | functional | follow-up — multi-node wsrep set: exactly one node reports `IS_ACTIVE_REPLICA=YES`; deterministic across nodes. |
+| `pxc_5201_receiver_failover` | FR-A3,A4,A5 | destructive | follow-up (`big_test`, 2-cluster) — Kill the active replica node; another node resumes the channel and data flows. |
+| `pxc_5201_source_failover` | FR-B2,B3,B5 | destructive | follow-up (`big_test`, 2-cluster) — cross-DC `wsrep_incoming_addresses` pull; killing the connected source relocates the connection. |
+
+Injected GAP / ERRANT / XID_MISMATCH verdicts that *block* a start need an
+established source link, so they are validated in the destructive follow-ups
+alongside the cross-datacenter membership pull (see `low_level_design.md` §8.1).
 
 Existing tests that must keep passing (regression guard):
 `galera.pxc_async_conn_failover`, `galera.pxc_acf_add_delete_managed`,

@@ -1,0 +1,70 @@
+# PXC-5201: two INDEPENDENT single-node Galera clusters (D1, D2) wired in a
+# circular (bi-directional) asynchronous replication topology.
+#
+#   D1 (mysqld.1) --- channel 'a2b' ---> D2 (mysqld.2)
+#   D2 (mysqld.2) --- channel 'b2a' ---> D1 (mysqld.1)
+#
+# Each mysqld bootstraps its OWN cluster (wsrep_cluster_address='gcomm://'), so
+# the two are separate primary components linked only by the async channels.
+# log-replica-updates is mandatory: it makes each side re-log the transactions
+# it applies from the peer while PRESERVING the origin GTID, which is exactly
+# what lets GTID auto-positioning suppress the loop-back.
+!include include/default_mysqld.cnf
+!include include/default_client.cnf
+
+[mysqld]
+report-host=                127.0.0.1
+report-user=                root
+
+skip-replica-start
+loose-innodb_write_io_threads= 2
+loose-innodb_read_io_threads= 2
+
+log-bin=mysqld-bin
+log-replica-updates
+binlog-format=row
+gtid-mode=on
+enforce-gtid-consistency
+
+wsrep_causal_reads=ON
+wsrep_sync_wait=15
+innodb_autoinc_lock_mode=2
+innodb_flush_log_at_trx_commit=2
+
+# ---- D1 -----------------------------------------------------------------
+[mysqld.1]
+server-id=1
+report-port=                @mysqld.1.port
+early_plugin_load=keyring_file.so
+keyring_file_data=@ENV.MYSQL_TMP_DIR/mysqld.1/keyring.1
+
+wsrep_provider=@ENV.WSREP_PROVIDER
+wsrep_cluster_address='gcomm://'
+wsrep_provider_options='base_port=@mysqld.1.#galera_port;@ENV.WSREP_PROVIDER_TIMEOUTS'
+
+wsrep_node_name=pxc_d1_node1
+wsrep_node_address=127.0.0.1
+wsrep_sst_receive_address=127.0.0.1:@mysqld.1.#sst_port
+wsrep_node_incoming_address=127.0.0.1:@mysqld.1.port
+
+# ---- D2 -----------------------------------------------------------------
+[mysqld.2]
+server-id=2
+report-port=                @mysqld.2.port
+early_plugin_load=keyring_file.so
+keyring_file_data=@ENV.MYSQL_TMP_DIR/mysqld.2/keyring.2
+
+wsrep_provider=@ENV.WSREP_PROVIDER
+wsrep_cluster_address='gcomm://'
+wsrep_provider_options='base_port=@mysqld.2.#galera_port;@ENV.WSREP_PROVIDER_TIMEOUTS'
+
+wsrep_node_name=pxc_d2_node1
+wsrep_node_address=127.0.0.1
+wsrep_sst_receive_address=127.0.0.1:@mysqld.2.#sst_port
+wsrep_node_incoming_address=127.0.0.1:@mysqld.2.port
+
+[ENV]
+SERVER_MYPORT_1=		@mysqld.1.port
+SERVER_MYSOCK_1=		@mysqld.1.socket
+SERVER_MYPORT_2=		@mysqld.2.port
+SERVER_MYSOCK_2=		@mysqld.2.socket

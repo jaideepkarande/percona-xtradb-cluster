@@ -138,14 +138,19 @@ Each requirement is tagged so it can be traced to the design
 
 ## 4. Acceptance criteria (high level)
 
-| Criterion | Verified by |
-|-----------|-------------|
-| Killing the active DR replica node promotes another DR node and replication resumes | `galera.pxc_5201_receiver_failover` |
-| Killing the connected primary source moves the connection to a surviving primary node | `galera.pxc_5201_source_failover` |
-| DR cluster is `super_read_only`; applier still applies | `galera.pxc_5201_super_read_only` |
-| GTID gap/errant blocks failover in `ENFORCE`, warns in `WARN` | `galera.pxc_5201_gtid_consistency` |
-| `GaleraCluster` managed type accepted; `GroupReplication` still works | `galera.pxc_5201_managed_type` |
-| Feature OFF == baseline behaviour | existing `galera.pxc_async_conn_failover` still passes |
-| Status visible in `performance_schema.wsrep_async_failover_status` | every test above |
+| Criterion | Verified by | Status |
+|-----------|-------------|--------|
+| Variables/defaults, coordinator start/stop, election of lone node, P_S table | `galera.pxc_5201_basic` | shipped |
+| `GaleraCluster` managed type accepted; `GroupReplication` still works | `galera.pxc_5201_managed_type` | shipped |
+| GTID gap/errant/in-doubt blocks in `ENFORCE`, warns in `WARN`, skips in `OFF` | `galera.pxc_5201_gtid_consistency` | shipped |
+| DR cluster is `super_read_only`; disabling the knob releases only the managed bit (FR-S3) | `galera.pxc_5201_super_read_only` | shipped |
+| ACF candidate source list add/prune reconciliation (`BOTH` mode) | `galera.pxc_5201_source_list` | shipped |
+| Feature OFF == baseline behaviour; no coordinator thread | `galera.pxc_5201_disabled_noop` | shipped |
+| Killing the active DR replica node promotes another DR node and replication resumes | `galera.pxc_5201_receiver_failover` | follow-up (`big_test`, 2-cluster) |
+| Killing the connected primary source moves the connection to a surviving primary node | `galera.pxc_5201_source_failover` | follow-up (`big_test`, 2-cluster) |
+| Status visible in `performance_schema.wsrep_async_failover_status` | every test above | shipped |
 
-See `testing_plan.md` for the full matrix.
+The destructive two-cluster criteria (`receiver_failover`, `source_failover`)
+and the cross-datacenter `wsrep_incoming_addresses` pull they exercise are the
+documented follow-up (see `low_level_design.md` §8.1). See `testing_plan.md` for
+the full matrix.

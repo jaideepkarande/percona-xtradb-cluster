@@ -130,7 +130,13 @@ class Wsrep_async_failover {
   /* Per-iteration logic. Called on the worker THD. */
   void process_once(class THD *thd);
   void process_receiver(THD *thd, bool elected);
-  void process_source(THD *thd);
+
+  /*
+    Scenario B: reconcile the ACF candidate source list for @channel with the
+    healthy members of the managed 'GaleraCluster' source group(s). Runs on the
+    receiver's elected node (that is where the ACF tables live).
+  */
+  void refresh_source_list(THD *thd, const std::string &channel);
 
   /* Election: returns true if this node should be the active replica. */
   bool compute_election(long *elected_index, long *cluster_size) const;
@@ -153,6 +159,18 @@ class Wsrep_async_failover {
   bool m_thread_running{false};
   bool m_abort{false};
   bool m_view_pending{false};
+
+  /*
+    Membership snapshot captured by on_view() from the totally-ordered Galera
+    view. compute_election() prefers these (they carry each member's incoming
+    address, so arbitrator/garbd members with an empty address can be skipped)
+    and falls back to the wsrep status globals until the first view arrives.
+    All guarded by m_mutex.
+  */
+  bool m_view_seen{false};
+  bool m_view_primary{false};
+  long m_view_own_index{-1};
+  long m_view_elected_index{-1};
 
   /* True while the coordinator itself is holding super_read_only. */
   bool m_holds_super_read_only{false};

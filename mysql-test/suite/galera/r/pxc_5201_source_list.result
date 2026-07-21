@@ -1,0 +1,60 @@
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\]");
+CALL mtr.add_suppression("The group .* for the channel .* has been added");
+CALL mtr.add_suppression("The group .* for the channel .* has been removed");
+SET SESSION sql_log_bin = 1;
+#
+# Setup: register this node's cluster as a GaleraCluster managed group on
+# channel 'clink', then plant a stale candidate that is not a member.
+#
+SELECT asynchronous_connection_failover_add_managed('clink', 'GaleraCluster', 'd1', '127.0.0.1', SERVER_MYPORT_1, '', 80, 60);
+asynchronous_connection_failover_add_managed('clink', 'GaleraCluster', 'd1', '127.0.0.1', SERVER_MYPORT_1, '', 80, 60)
+The UDF asynchronous_connection_failover_add_managed() executed successfully.
+SELECT asynchronous_connection_failover_add_source('clink', '127.0.0.1', 9999, '', 50);
+asynchronous_connection_failover_add_source('clink', '127.0.0.1', 9999, '', 50)
+The UDF asynchronous_connection_failover_add_source() executed successfully.
+#
+# Before reconciliation both the live seed and the stale 9999 are present.
+#
+SELECT COUNT(*) AS stale_before
+FROM performance_schema.replication_asynchronous_connection_failover
+WHERE CHANNEL_NAME = 'clink' AND PORT = 9999;
+stale_before
+1
+#
+# Enable the coordinator in BOTH mode (co-located: membership is locally
+# observable), read_only management OFF so the test client can write.
+#
+SET GLOBAL wsrep_async_failover_check_interval = 1;
+SET GLOBAL wsrep_async_failover_channel = 'clink';
+SET GLOBAL wsrep_async_failover_read_only = OFF;
+SET GLOBAL wsrep_async_failover_mode = 'BOTH';
+SET GLOBAL wsrep_async_failover = ON;
+#
+# The stale 9999 candidate is pruned; the live member survives.
+#
+SELECT COUNT(*) AS stale_after
+FROM performance_schema.replication_asynchronous_connection_failover
+WHERE CHANNEL_NAME = 'clink' AND PORT = 9999;
+stale_after
+0
+SELECT COUNT(*) AS live_present FROM performance_schema.replication_asynchronous_connection_failover WHERE CHANNEL_NAME = 'clink' AND HOST = '127.0.0.1' AND PORT = SERVER_MYPORT_1;
+live_present
+1
+#
+# Clean up.
+#
+SET GLOBAL wsrep_async_failover = OFF;
+SET GLOBAL wsrep_async_failover_mode = 'OFF';
+SET GLOBAL wsrep_async_failover_channel = '';
+SET GLOBAL wsrep_async_failover_read_only = ON;
+SET GLOBAL wsrep_async_failover_check_interval = 5;
+SELECT asynchronous_connection_failover_delete_managed('clink', 'd1');
+asynchronous_connection_failover_delete_managed('clink', 'd1')
+The UDF asynchronous_connection_failover_delete_managed() executed successfully.
+SELECT asynchronous_connection_failover_reset();
+SELECT COUNT(*)
+FROM performance_schema.replication_asynchronous_connection_failover
+WHERE CHANNEL_NAME = 'clink';
+COUNT(*)
+0
