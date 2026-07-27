@@ -26,7 +26,7 @@ VARIABLE_NAME LIKE '%applier%') AND
 (VARIABLE_NAME NOT LIKE 'innodb%')
 ORDER BY VARIABLE_NAME;
 
-include/assert.inc [Expect 122 variables in the table.]
+include/assert.inc [Expect 123 variables in the table.]
 
 # Test SET PERSIST
 SET PERSIST binlog_cache_size = @@GLOBAL.binlog_cache_size;
@@ -248,6 +248,7 @@ SET PERSIST sync_source_info = @@GLOBAL.sync_source_info;
 SET PERSIST wsrep_applier_FK_checks = @@GLOBAL.wsrep_applier_FK_checks;
 SET PERSIST wsrep_applier_threads = @@GLOBAL.wsrep_applier_threads;
 SET PERSIST wsrep_applier_UK_checks = @@GLOBAL.wsrep_applier_UK_checks;
+SET PERSIST wsrep_async_failover_gtid_check = @@GLOBAL.wsrep_async_failover_gtid_check;
 SET PERSIST wsrep_replicate_myisam = @@GLOBAL.wsrep_replicate_myisam;
 SET PERSIST wsrep_restart_replica = @@GLOBAL.wsrep_restart_replica;
 SET PERSIST wsrep_restart_slave = @@GLOBAL.wsrep_restart_slave;
@@ -267,16 +268,16 @@ Warnings:
 Warning	1287	'@@wsrep_slave_UK_checks' is deprecated and will be removed in a future release. Please use wsrep_applier_UK_checks instead.
 Warning	1287	'@@wsrep_slave_UK_checks' is deprecated and will be removed in a future release. Please use wsrep_applier_UK_checks instead.
 
-include/assert.inc [Expect 97 persisted variables in persisted_variables table.]
+include/assert.inc [Expect 98 persisted variables in persisted_variables table.]
 
 ############################################################
 # 2. Restart server, it must preserve the persisted variable
 #    settings. Verify persisted configuration.
 # restart
 
-include/assert.inc [Expect 97 persisted variables in persisted_variables table.']
-include/assert.inc [Expect 97 persisted variables shown as PERSISTED in variables_info table.']
-include/assert.inc [Expect 97 persisted variables with matching persisted and global values.]
+include/assert.inc [Expect 98 persisted variables in persisted_variables table.']
+include/assert.inc [Expect 98 persisted variables shown as PERSISTED in variables_info table.']
+include/assert.inc [Expect 98 persisted variables with matching persisted and global values.]
 
 ############################################################
 # 3. Test RESET PERSIST IF EXISTS. Verify persisted variable
@@ -487,6 +488,7 @@ Warning	3615	Variable sync_source_info does not exist in persisted config file
 RESET PERSIST IF EXISTS wsrep_applier_FK_checks;
 RESET PERSIST IF EXISTS wsrep_applier_threads;
 RESET PERSIST IF EXISTS wsrep_applier_UK_checks;
+RESET PERSIST IF EXISTS wsrep_async_failover_gtid_check;
 RESET PERSIST IF EXISTS wsrep_replicate_myisam;
 RESET PERSIST IF EXISTS wsrep_restart_replica;
 RESET PERSIST IF EXISTS wsrep_restart_slave;

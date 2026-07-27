@@ -1,0 +1,58 @@
+# ==== Purpose ====
+# PXC-5201: the GTID consistency gate honours wsrep_async_failover_gtid_check and
+# surfaces its verdict in performance_schema.wsrep_async_failover_status.
+#
+#   * FR-G1/FR-G3: OFF skips the check (verdict SKIPPED); WARN/ENFORCE evaluate
+#     it and, on a clean node, report OK.
+#   * FR-G4: the verdict is observable.
+#
+# Fault injection (GAP / ERRANT / XID_MISMATCH blocking a start) requires an
+# established source link and is exercised by the destructive two-cluster
+# follow-up (testing_plan.md 2.7); here we validate the policy plumbing and the
+# clean-node verdicts, which are deterministic on a single member.
+# ==================
+--source include/have_wsrep_provider.inc
+
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\]");
+SET SESSION sql_log_bin = 1;
+
+SET GLOBAL wsrep_async_failover_check_interval = 1;
+SET GLOBAL wsrep_async_failover_channel = '';
+SET GLOBAL wsrep_async_failover_mode = 'RECEIVER';
+SET GLOBAL wsrep_async_failover_read_only = OFF;
+
+--echo #
+--echo # 1. OFF policy -> the gate is skipped (verdict SKIPPED).
+--echo #
+SET GLOBAL wsrep_async_failover_gtid_check = 'OFF';
+SET GLOBAL wsrep_async_failover = ON;
+--let $wait_condition= SELECT GTID_CONSISTENCY = 'SKIPPED' FROM performance_schema.wsrep_async_failover_status
+--source include/wait_condition.inc
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 2. WARN policy on a clean node -> verdict OK.
+--echo #
+SET GLOBAL wsrep_async_failover_gtid_check = 'WARN';
+--let $wait_condition= SELECT GTID_CONSISTENCY = 'OK' FROM performance_schema.wsrep_async_failover_status
+--source include/wait_condition.inc
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 3. ENFORCE policy on a clean node -> verdict OK.
+--echo #
+SET GLOBAL wsrep_async_failover_gtid_check = 'ENFORCE';
+--let $wait_condition= SELECT GTID_CONSISTENCY = 'OK' FROM performance_schema.wsrep_async_failover_status
+--source include/wait_condition.inc
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+
+--echo #
+--echo # 4. Clean up.
+--echo #
+SET GLOBAL wsrep_async_failover = OFF;
+SET GLOBAL wsrep_async_failover_mode = 'OFF';
+SET GLOBAL wsrep_async_failover_gtid_check = 'ENFORCE';
+SET GLOBAL wsrep_async_failover_read_only = ON;
+SET GLOBAL wsrep_async_failover_check_interval = 5;
+SET GLOBAL read_only = OFF;

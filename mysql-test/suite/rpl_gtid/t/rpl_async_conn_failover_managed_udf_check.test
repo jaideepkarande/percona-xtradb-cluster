@@ -403,7 +403,10 @@ SELECT asynchronous_connection_failover_delete_managed('', 'aaaaaaaa-bbbb-bbbb-a
 --error ER_UDF_ERROR
 SELECT asynchronous_connection_failover_delete_managed('', 'aaaaaaaa-bbbb-bbbb-aaaa-aaaaaaaaaaaa');
 
---error ER_CANT_INITIALIZE_UDF
+# PXC-5201: delete_managed no longer pre-validates the managed name as a UUID
+# (GaleraCluster labels are not UUIDs and this UDF has no managed_type argument),
+# so a non-existent name now fails at row lookup rather than at initialization.
+--error ER_UDF_ERROR
 SELECT asynchronous_connection_failover_delete_managed('', 'UUID');
 
 --disconnect connect_async

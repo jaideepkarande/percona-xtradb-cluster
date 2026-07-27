@@ -1757,6 +1757,29 @@ The following options may be given as the first argument:
  chesks
  --wsrep-applier-threads=# 
  Number of applier threads to launch
+ --wsrep-async-failover 
+ PXC-5201: enable the cluster-aware asynchronous
+ replication failover coordinator on this node. When ON,
+ PXC automatically manages the asynchronous replication
+ link between two Galera clusters.
+ --wsrep-async-failover-channel=name 
+ PXC-5201: the asynchronous replication channel managed by
+ the coordinator on the receiver side. Empty means the
+ default channel.
+ --wsrep-async-failover-check-interval=# 
+ PXC-5201: interval in seconds at which the coordinator
+ re-evaluates cluster membership and GTID consistency.
+ --wsrep-async-failover-gtid-check=name 
+ PXC-5201: GTID consistency policy applied before
+ (re)starting the async replica: OFF, WARN or ENFORCE.
+ --wsrep-async-failover-mode=name 
+ PXC-5201: role this cluster plays in the asynchronous
+ replication link: OFF, RECEIVER (DR site), SOURCE
+ (primary site) or BOTH.
+ --wsrep-async-failover-read-only 
+ PXC-5201: when acting as RECEIVER/BOTH, keep the DR
+ cluster in super_read_only to avoid split brain.
+ (Defaults to on; use --skip-wsrep-async-failover-read-only to disable.)
  --wsrep-auto-increment-control 
  To automatically control the assignment of autoincrement
  variables
@@ -2351,6 +2374,12 @@ wsrep-SR-store table
 wsrep-applier-FK-checks TRUE
 wsrep-applier-UK-checks FALSE
 wsrep-applier-threads 1
+wsrep-async-failover FALSE
+wsrep-async-failover-channel 
+wsrep-async-failover-check-interval 5
+wsrep-async-failover-gtid-check ENFORCE
+wsrep-async-failover-mode OFF
+wsrep-async-failover-read-only TRUE
 wsrep-auto-increment-control TRUE
 wsrep-causal-reads FALSE
 wsrep-certification-rules strict

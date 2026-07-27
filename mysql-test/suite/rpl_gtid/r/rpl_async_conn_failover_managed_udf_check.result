@@ -189,7 +189,7 @@ The UDF asynchronous_connection_failover_add_managed() executed successfully.
 SELECT asynchronous_connection_failover_add_managed('', 'GroupReplication', 'aaaaaaaa-bbbb-bbbb-aaaa-aaaaaaaaaaaa', '127.0.0.1', 3100, '', 80, 60);
 ERROR HY000: asynchronous_connection_failover_add_managed UDF failed; Error inserting row to the table.
 SELECT asynchronous_connection_failover_add_managed('', 'AsyncReplication', 'aaaaaaaa-bbbb-bbbb-aaaa-aaaaaaaaaaaa', '127.0.0.1', 3100, '', 80, 60);
-ERROR HY000: Can't initialize function 'asynchronous_connection_failover_add_managed'; Wrong value: Managed type must be GroupReplication.
+ERROR HY000: Can't initialize function 'asynchronous_connection_failover_add_managed'; Wrong value: Managed type must be GroupReplication or GaleraCluster.
 SELECT asynchronous_connection_failover_add_managed('', 'GroupReplication', 'UUID', '127.0.0.1', 3100, '', 80, 60);
 ERROR HY000: Can't initialize function 'asynchronous_connection_failover_add_managed'; Wrong value: Please specify valid UUID for managed name.
 SELECT asynchronous_connection_failover_delete_managed('', 'aaaaaaaa-bbbb-bbbb-aaaa-aaaaaaaaaaaa');
@@ -198,7 +198,7 @@ The UDF asynchronous_connection_failover_delete_managed() executed successfully.
 SELECT asynchronous_connection_failover_delete_managed('', 'aaaaaaaa-bbbb-bbbb-aaaa-aaaaaaaaaaaa');
 ERROR HY000: asynchronous_connection_failover_delete_managed UDF failed; Error no matching row was found to be deleted.
 SELECT asynchronous_connection_failover_delete_managed('', 'UUID');
-ERROR HY000: Can't initialize function 'asynchronous_connection_failover_delete_managed'; Wrong value: Please specify valid UUID for managed name.
+ERROR HY000: asynchronous_connection_failover_delete_managed UDF failed; Error no matching row was found to be deleted.
 [connection master]
 include/assert.inc ['The performance_schema.replication_asynchronous_connection_failover table is empty']
 include/assert.inc ['The performance_schema.replication_asynchronous_connection_failover_managed table is empty']

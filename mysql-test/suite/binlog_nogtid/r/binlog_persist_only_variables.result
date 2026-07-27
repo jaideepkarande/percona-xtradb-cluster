@@ -46,7 +46,7 @@ INSERT INTO aliases(name) VALUES
 ('slave_parallel_workers'), ('slave_pending_jobs_size_max'),
 ('pseudo_slave_mode'), ('skip_slave_start'), ('wsrep_restart_slave');
 
-include/assert.inc [Expect 119 variables in the table.]
+include/assert.inc [Expect 120 variables in the table.]
 
 # Test SET PERSIST_ONLY
 SET PERSIST_ONLY binlog_cache_size = @@GLOBAL.binlog_cache_size;
@@ -266,6 +266,7 @@ Warnings:
 Warning	1287	'@@sync_relay_log_info' is deprecated and will be removed in a future release.
 Warning	1287	'@@sync_relay_log_info' is deprecated and will be removed in a future release.
 SET PERSIST_ONLY sync_source_info = @@GLOBAL.sync_source_info;
+SET PERSIST_ONLY wsrep_async_failover_gtid_check = @@GLOBAL.wsrep_async_failover_gtid_check;
 SET PERSIST_ONLY wsrep_replicate_myisam = @@GLOBAL.wsrep_replicate_myisam;
 SET PERSIST_ONLY wsrep_restart_replica = @@GLOBAL.wsrep_restart_replica;
 SET PERSIST_ONLY wsrep_restart_slave = @@GLOBAL.wsrep_restart_slave;
@@ -285,16 +286,16 @@ Warnings:
 Warning	1287	'@@wsrep_slave_UK_checks' is deprecated and will be removed in a future release. Please use wsrep_applier_UK_checks instead.
 Warning	1287	'@@wsrep_slave_UK_checks' is deprecated and will be removed in a future release. Please use wsrep_applier_UK_checks instead.
 
-include/assert.inc [Expect 109 persisted variables in persisted_variables table.]
+include/assert.inc [Expect 110 persisted variables in persisted_variables table.]
 
 ############################################################
 # 2. Restart server, it must preserve the persisted variable
 #    settings. Verify persisted configuration.
 # restart
 
-include/assert.inc [Expect 109 persisted variables in persisted_variables table.]
-include/assert.inc [Expect 109 persisted variables shown as PERSISTED in variables_info table.]
-include/assert.inc [Expect 109 persisted variables with matching persisted and global values.]
+include/assert.inc [Expect 110 persisted variables in persisted_variables table.]
+include/assert.inc [Expect 110 persisted variables shown as PERSISTED in variables_info table.]
+include/assert.inc [Expect 110 persisted variables with matching persisted and global values.]
 
 ############################################################
 # 3. Test RESET PERSIST. Verify persisted variable settings
@@ -400,6 +401,7 @@ RESET PERSIST sync_binlog;
 RESET PERSIST sync_relay_log;
 RESET PERSIST sync_relay_log_info;
 RESET PERSIST sync_source_info;
+RESET PERSIST wsrep_async_failover_gtid_check;
 RESET PERSIST wsrep_replicate_myisam;
 RESET PERSIST wsrep_restart_replica;
 RESET PERSIST wsrep_slave_FK_checks;

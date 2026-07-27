@@ -1528,6 +1528,16 @@ def	performance_schema	variables_info	MAX_VALUE	5	NULL	YES	varchar	64	256	NULL	N
 def	performance_schema	variables_info	SET_TIME	6	NULL	YES	timestamp	NULL	NULL	NULL	NULL	6	NULL	NULL	timestamp(6)			select,insert,update,references			NULL
 def	performance_schema	variables_info	SET_USER	7	NULL	YES	char	32	128	NULL	NULL	NULL	utf8mb4	utf8mb4_bin	char(32)			select,insert,update,references			NULL
 def	performance_schema	variables_info	SET_HOST	8	NULL	YES	char	255	255	NULL	NULL	NULL	ascii	ascii_general_ci	char(255)			select,insert,update,references			NULL
+def	performance_schema	wsrep_async_failover_status	ENABLED	1	NULL	NO	enum	3	12	NULL	NULL	NULL	utf8mb4	utf8mb4_0900_ai_ci	enum('YES','NO')			select,insert,update,references	Whether the PXC cluster-aware asynchronous replication failover coordinator is enabled on this node.		NULL
+def	performance_schema	wsrep_async_failover_status	MODE	2	NULL	NO	varchar	16	64	NULL	NULL	NULL	utf8mb4	utf8mb4_0900_ai_ci	varchar(16)			select,insert,update,references	Role this cluster plays in the async link: OFF, RECEIVER, SOURCE or BOTH.		NULL
+def	performance_schema	wsrep_async_failover_status	CHANNEL_NAME	3	NULL	NO	char	64	192	NULL	NULL	NULL	utf8mb3	utf8mb3_general_ci	char(64)			select,insert,update,references	The asynchronous replication channel managed by the coordinator on the receiver side.		NULL
+def	performance_schema	wsrep_async_failover_status	IS_ACTIVE_REPLICA	4	NULL	NO	enum	3	12	NULL	NULL	NULL	utf8mb4	utf8mb4_0900_ai_ci	enum('YES','NO')			select,insert,update,references	Whether this node is the currently elected active asynchronous replica.		NULL
+def	performance_schema	wsrep_async_failover_status	ELECTED_INDEX	5	NULL	NO	bigint	NULL	NULL	19	0	NULL	NULL	NULL	bigint			select,insert,update,references	wsrep cluster index of the elected active replica node, or -1 if none.		NULL
+def	performance_schema	wsrep_async_failover_status	CLUSTER_SIZE	6	NULL	NO	bigint	NULL	NULL	19	0	NULL	NULL	NULL	bigint			select,insert,update,references	Number of members in the current primary component.		NULL
+def	performance_schema	wsrep_async_failover_status	GTID_CONSISTENCY	7	NULL	NO	varchar	16	64	NULL	NULL	NULL	utf8mb4	utf8mb4_0900_ai_ci	varchar(16)			select,insert,update,references	Result of the last GTID consistency gate: OK, ERRANT, GAP, XID_MISMATCH or SKIPPED.		NULL
+def	performance_schema	wsrep_async_failover_status	SUPER_READ_ONLY_MANAGED	8	NULL	NO	enum	3	12	NULL	NULL	NULL	utf8mb4	utf8mb4_0900_ai_ci	enum('YES','NO')			select,insert,update,references	Whether the coordinator is currently holding super_read_only on the DR cluster.		NULL
+def	performance_schema	wsrep_async_failover_status	LAST_ACTION	9	NULL	NO	varchar	512	2048	NULL	NULL	NULL	utf8mb4	utf8mb4_0900_ai_ci	varchar(512)			select,insert,update,references	Human readable description of the last decision taken by the coordinator.		NULL
+def	performance_schema	wsrep_async_failover_status	LAST_ACTION_TIMESTAMP	10	NULL	YES	timestamp	NULL	NULL	NULL	NULL	6	NULL	NULL	timestamp(6)			select,insert,update,references	When the last action was taken.		NULL
 select count(*) from information_schema.columns
 where table_schema="performance_schema" and data_type = "bigint"
    and column_name like "%number_of_bytes" into @count_byte_columns;

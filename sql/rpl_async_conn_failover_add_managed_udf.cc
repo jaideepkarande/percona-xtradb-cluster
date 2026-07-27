@@ -125,9 +125,19 @@ bool Rpl_async_conn_failover_add_managed::add_managed_init(UDF_INIT *init_id,
     return true;
   }
 
-  if (args->lengths[1] != 16 || strcmp(args->args[1], "GroupReplication")) {
-    my_stpcpy(message, "Wrong value: Managed type must be GroupReplication.");
-    return true;
+  /* PXC-5201: accept the Galera-aware managed type in addition to the
+     Group Replication one. */
+  {
+    const bool is_gr =
+        (args->lengths[1] == 16 && !strcmp(args->args[1], "GroupReplication"));
+    const bool is_galera =
+        (args->lengths[1] == 13 && !strcmp(args->args[1], "GaleraCluster"));
+    if (!is_gr && !is_galera) {
+      my_stpcpy(message,
+                "Wrong value: Managed type must be GroupReplication or "
+                "GaleraCluster.");
+      return true;
+    }
   }
 
   if (args->arg_type[2] != STRING_RESULT || args->lengths[2] == 0) {

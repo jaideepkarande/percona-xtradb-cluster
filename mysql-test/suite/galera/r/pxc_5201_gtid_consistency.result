@@ -1,0 +1,38 @@
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\]");
+SET SESSION sql_log_bin = 1;
+SET GLOBAL wsrep_async_failover_check_interval = 1;
+SET GLOBAL wsrep_async_failover_channel = '';
+SET GLOBAL wsrep_async_failover_mode = 'RECEIVER';
+SET GLOBAL wsrep_async_failover_read_only = OFF;
+#
+# 1. OFF policy -> the gate is skipped (verdict SKIPPED).
+#
+SET GLOBAL wsrep_async_failover_gtid_check = 'OFF';
+SET GLOBAL wsrep_async_failover = ON;
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+GTID_CONSISTENCY
+SKIPPED
+#
+# 2. WARN policy on a clean node -> verdict OK.
+#
+SET GLOBAL wsrep_async_failover_gtid_check = 'WARN';
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+GTID_CONSISTENCY
+OK
+#
+# 3. ENFORCE policy on a clean node -> verdict OK.
+#
+SET GLOBAL wsrep_async_failover_gtid_check = 'ENFORCE';
+SELECT GTID_CONSISTENCY FROM performance_schema.wsrep_async_failover_status;
+GTID_CONSISTENCY
+OK
+#
+# 4. Clean up.
+#
+SET GLOBAL wsrep_async_failover = OFF;
+SET GLOBAL wsrep_async_failover_mode = 'OFF';
+SET GLOBAL wsrep_async_failover_gtid_check = 'ENFORCE';
+SET GLOBAL wsrep_async_failover_read_only = ON;
+SET GLOBAL wsrep_async_failover_check_interval = 5;
+SET GLOBAL read_only = OFF;

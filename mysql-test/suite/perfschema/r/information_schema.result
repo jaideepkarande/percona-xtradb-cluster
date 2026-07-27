@@ -119,6 +119,7 @@ performance_schema	user_variables_by_thread	def
 performance_schema	users	def
 performance_schema	variables_by_thread	def
 performance_schema	variables_info	def
+performance_schema	wsrep_async_failover_status	def
 select lower(TABLE_NAME), TABLE_TYPE, ENGINE
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema';
@@ -240,6 +241,7 @@ user_variables_by_thread	BASE TABLE	PERFORMANCE_SCHEMA
 users	BASE TABLE	PERFORMANCE_SCHEMA
 variables_by_thread	BASE TABLE	PERFORMANCE_SCHEMA
 variables_info	BASE TABLE	PERFORMANCE_SCHEMA
+wsrep_async_failover_status	BASE TABLE	PERFORMANCE_SCHEMA
 select lower(TABLE_NAME), VERSION, ROW_FORMAT
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema';
@@ -361,6 +363,7 @@ user_variables_by_thread	10	Dynamic
 users	10	Fixed
 variables_by_thread	10	Dynamic
 variables_info	10	Dynamic
+wsrep_async_failover_status	10	Dynamic
 select lower(TABLE_NAME), AVG_ROW_LENGTH
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema' and
@@ -472,6 +475,7 @@ tls_channel_status	0
 user_defined_functions	0
 user_variables_by_thread	0
 users	0
+wsrep_async_failover_status	0
 select lower(TABLE_NAME), TABLE_ROWS, AVG_ROW_LENGTH
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema' and
@@ -609,6 +613,7 @@ user_variables_by_thread	0	0
 users	0	0
 variables_by_thread	0	0
 variables_info	0	0
+wsrep_async_failover_status	0	0
 select lower(TABLE_NAME), INDEX_LENGTH, DATA_FREE, AUTO_INCREMENT
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema';
@@ -730,6 +735,7 @@ user_variables_by_thread	0	0	NULL
 users	0	0	NULL
 variables_by_thread	0	0	NULL
 variables_info	0	0	NULL
+wsrep_async_failover_status	0	0	NULL
 select lower(TABLE_NAME), CREATE_TIME, UPDATE_TIME, CHECK_TIME
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema';
@@ -851,6 +857,7 @@ user_variables_by_thread	NULL	NULL	NULL
 users	NULL	NULL	NULL
 variables_by_thread	NULL	NULL	NULL
 variables_info	NULL	NULL	NULL
+wsrep_async_failover_status	NULL	NULL	NULL
 select lower(TABLE_NAME), TABLE_COLLATION, CHECKSUM
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema';
@@ -972,6 +979,7 @@ user_variables_by_thread	utf8mb4_0900_ai_ci	NULL
 users	utf8mb4_0900_ai_ci	NULL
 variables_by_thread	utf8mb4_0900_ai_ci	NULL
 variables_info	utf8mb4_0900_ai_ci	NULL
+wsrep_async_failover_status	utf8mb4_0900_ai_ci	NULL
 select lower(TABLE_NAME), CREATE_OPTIONS
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema';
@@ -1093,6 +1101,7 @@ user_variables_by_thread
 users	
 variables_by_thread	
 variables_info	
+wsrep_async_failover_status	
 select lower(TABLE_NAME), TABLE_COMMENT
 from information_schema.tables
 where TABLE_SCHEMA='performance_schema';
@@ -1214,3 +1223,4 @@ user_variables_by_thread
 users	
 variables_by_thread	
 variables_info	
+wsrep_async_failover_status	

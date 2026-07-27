@@ -1,0 +1,36 @@
+#
+# 1. The feature is OFF by default (FR-C2).
+#
+SELECT @@GLOBAL.wsrep_async_failover;
+@@GLOBAL.wsrep_async_failover
+0
+#
+# 2. No coordinator thread is running while disabled (NFR-5, NFR-6).
+#
+SELECT COUNT(*) AS acf_threads
+FROM performance_schema.threads
+WHERE NAME LIKE '%wsrep_async_failover%';
+acf_threads
+0
+#
+# 3. The status table reports the disabled state.
+#
+SELECT ENABLED, IS_ACTIVE_REPLICA
+FROM performance_schema.wsrep_async_failover_status;
+ENABLED	IS_ACTIVE_REPLICA
+NO	NO
+#
+# 4. super_read_only is not touched by the disabled coordinator.
+#
+SELECT @@GLOBAL.super_read_only;
+@@GLOBAL.super_read_only
+0
+#
+# 5. Ordinary DDL/DML behaves as baseline.
+#
+CREATE TABLE t1 (a INT) ENGINE=InnoDB;
+INSERT INTO t1 VALUES (1);
+SELECT COUNT(*) FROM t1;
+COUNT(*)
+1
+DROP TABLE t1;

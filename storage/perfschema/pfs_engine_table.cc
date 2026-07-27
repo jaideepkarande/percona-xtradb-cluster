@@ -129,6 +129,7 @@
 #include "storage/perfschema/table_replication_group_member_stats.h"
 #include "storage/perfschema/table_replication_group_members.h"
 #include "storage/perfschema/table_rpl_async_connection_failover_managed.h"
+#include "storage/perfschema/table_wsrep_async_failover_status.h"  // PXC-5201
 #include "storage/perfschema/table_session_account_connect_attrs.h"
 #include "storage/perfschema/table_session_connect_attrs.h"
 #include "storage/perfschema/table_session_status.h"
@@ -593,6 +594,7 @@ static PFS_engine_table_share *all_shares[] = {
     &table_replication_applier_global_filters::m_share,
     &table_replication_asynchronous_connection_failover::m_share,
     &table_rpl_async_connection_failover_managed::m_share,
+    &table_wsrep_async_failover_status::m_share,  // PXC-5201
     &table_log_status::m_share,
 
     &table_prepared_stmt_instances::m_share,

@@ -1,0 +1,55 @@
+SET SESSION sql_log_bin = 0;
+CALL mtr.add_suppression("\\[wsrep-acf\\]");
+SET SESSION sql_log_bin = 1;
+#
+# Setup: fast interval, RECEIVER mode, read_only management ON.
+#
+SET GLOBAL wsrep_async_failover_check_interval = 1;
+SET GLOBAL wsrep_async_failover_channel = '';
+SET GLOBAL wsrep_async_failover_mode = 'RECEIVER';
+SET GLOBAL wsrep_async_failover_read_only = ON;
+SET GLOBAL wsrep_async_failover = ON;
+#
+# 1. The coordinator enables super_read_only on the DR node (FR-S1).
+#
+SELECT @@GLOBAL.super_read_only;
+@@GLOBAL.super_read_only
+1
+SELECT SUPER_READ_ONLY_MANAGED FROM performance_schema.wsrep_async_failover_status;
+SUPER_READ_ONLY_MANAGED
+YES
+#
+# 2. A normal client write is refused while super_read_only holds (FR-S1).
+#
+CREATE TABLE t1 (a INT);
+ERROR HY000: The MySQL server is running with the --super-read-only option so it cannot execute this statement
+#
+# 3. Turning the knob OFF releases the coordinator-set bit (FR-S3).
+#
+SET GLOBAL wsrep_async_failover_read_only = OFF;
+SELECT @@GLOBAL.super_read_only;
+@@GLOBAL.super_read_only
+0
+SELECT SUPER_READ_ONLY_MANAGED FROM performance_schema.wsrep_async_failover_status;
+SUPER_READ_ONLY_MANAGED
+NO
+#
+# 4. A DBA-set super_read_only is left untouched by the coordinator: with
+#    the knob OFF the coordinator manages nothing, so the bit persists.
+#
+SET GLOBAL super_read_only = ON;
+SELECT @@GLOBAL.super_read_only;
+@@GLOBAL.super_read_only
+1
+SELECT SUPER_READ_ONLY_MANAGED FROM performance_schema.wsrep_async_failover_status;
+SUPER_READ_ONLY_MANAGED
+NO
+#
+# 5. Clean up.
+#
+SET GLOBAL super_read_only = OFF;
+SET GLOBAL read_only = OFF;
+SET GLOBAL wsrep_async_failover = OFF;
+SET GLOBAL wsrep_async_failover_mode = 'OFF';
+SET GLOBAL wsrep_async_failover_read_only = ON;
+SET GLOBAL wsrep_async_failover_check_interval = 5;

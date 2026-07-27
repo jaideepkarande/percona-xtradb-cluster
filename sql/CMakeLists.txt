@@ -778,6 +778,7 @@ ENDIF()
 IF(WITH_WSREP)
  SET(WSREP_SOURCES
    wsrep_applier.cc
+   wsrep_async_failover.cc
    wsrep_binlog.cc
    wsrep_check_opts.cc
    wsrep_client_service.cc

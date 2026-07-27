@@ -86,6 +86,10 @@ extern bool wsrep_slave_threads_update UPDATE_ARGS;
 extern bool wsrep_desync_check CHECK_ARGS;
 extern bool wsrep_desync_update UPDATE_ARGS;
 
+/* PXC-5201: async replication failover coordinator. */
+extern bool wsrep_async_failover_update UPDATE_ARGS;
+extern bool wsrep_async_failover_wakeup_update UPDATE_ARGS;
+
 extern bool wsrep_trx_fragment_size_check CHECK_ARGS;
 extern bool wsrep_trx_fragment_size_update UPDATE_ARGS;
 
