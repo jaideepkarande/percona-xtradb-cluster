@@ -434,7 +434,9 @@ void Wsrep_async_failover::process_once(THD *thd) {
 void Wsrep_async_failover::manage_super_read_only(THD *thd, bool want_on) {
   if (want_on) {
     std::string cur;
-    if (acf_query_scalar(thd, "SELECT @@GLOBAL.super_read_only", cur)) return;
+    if (acf_query_scalar(thd, "SELECT CAST(@@GLOBAL.super_read_only AS CHAR)",
+                         cur))
+      return;
     if (cur != "1") {
       if (!acf_exec(thd, "SET GLOBAL super_read_only=ON")) {
         mysql_mutex_lock(&m_mutex);
@@ -624,7 +626,7 @@ void Wsrep_async_failover::process_receiver(THD *thd, bool elected) {
       std::vector<std::vector<std::string>> cfg;
       acf_query_rows(
           thd,
-          "SELECT HOST, AUTO_POSITION FROM "
+          "SELECT HOST, CAST(AUTO_POSITION AS CHAR) FROM "
           "performance_schema.replication_connection_configuration WHERE "
           "CHANNEL_NAME='" +
               acf_sql_quote(channel) + "'",
@@ -705,10 +707,15 @@ void Wsrep_async_failover::refresh_source_list(THD *thd,
     pure-RECEIVER path is add-only (it keeps every registered seed present as a
     candidate but does not prune rows whose membership it cannot observe).
   */
+  /* The managed table stores only the group definition (MANAGED_NAME,
+     MANAGED_TYPE, CONFIGURATION); it has no HOST/PORT columns. The seed
+     host/port that add_managed() was given are written as a source row (tagged
+     with the same MANAGED_NAME) in replication_asynchronous_connection_failover.
+     So read the managed GaleraCluster group name(s) for the channel first ... */
   std::vector<std::vector<std::string>> managed;
   if (acf_query_rows(
           thd,
-          "SELECT MANAGED_NAME, HOST, PORT FROM "
+          "SELECT MANAGED_NAME FROM "
           "performance_schema.replication_asynchronous_connection_failover_"
           "managed WHERE MANAGED_TYPE='GaleraCluster' AND CHANNEL_NAME='" +
               acf_sql_quote(channel) + "'",
@@ -717,11 +724,21 @@ void Wsrep_async_failover::refresh_source_list(THD *thd,
   }
   if (managed.empty()) return;
 
-  /* Desired candidate set. Every registered seed is always desired. */
+  /* ... then collect their seed source rows as the always-desired candidates. */
   std::vector<std::pair<std::string, std::string>> desired;
   for (const auto &g : managed) {
-    if (g.size() < 3 || g[1].empty()) continue;
-    desired.emplace_back(g[1], g[2]);
+    if (g.empty() || g[0].empty()) continue;
+    std::vector<std::vector<std::string>> seeds;
+    acf_query_rows(
+        thd,
+        "SELECT HOST, CAST(PORT AS CHAR) FROM "
+        "performance_schema.replication_asynchronous_connection_failover WHERE "
+        "CHANNEL_NAME='" +
+            acf_sql_quote(channel) + "' AND MANAGED_NAME='" +
+            acf_sql_quote(g[0]) + "'",
+        seeds);
+    for (const auto &s : seeds)
+      if (s.size() >= 2 && !s[0].empty()) desired.emplace_back(s[0], s[1]);
   }
 
   /* In a co-located (BOTH) deployment fold in the live membership published in
@@ -746,8 +763,26 @@ void Wsrep_async_failover::refresh_source_list(THD *thd,
     return false;
   };
 
-  /* Add every desired candidate that is missing (idempotent). */
+  /* Read the current candidate rows once; reused for add-skip and prune. */
+  std::vector<std::vector<std::string>> current;
+  acf_query_rows(
+      thd,
+      "SELECT HOST, CAST(PORT AS CHAR) FROM "
+      "performance_schema.replication_asynchronous_connection_failover WHERE "
+      "CHANNEL_NAME='" +
+          acf_sql_quote(channel) + "'",
+      current);
+  auto in_current = [&](const std::string &h, const std::string &p) {
+    for (const auto &r : current)
+      if (r.size() >= 2 && r[0] == h && r[1] == p) return true;
+    return false;
+  };
+
+  /* Add every desired candidate that is not already present. Existing rows are
+     left untouched so a seed's managed_name tag is never cleared (the ACF
+     add-source UDF carries no managed_name and would rewrite the whole row). */
   for (const auto &d : desired) {
+    if (in_current(d.first, d.second)) continue;
     const std::string add =
         "SELECT asynchronous_connection_failover_add_source('" +
         acf_sql_quote(channel) + "', '" + acf_sql_quote(d.first) + "', " +
@@ -759,14 +794,6 @@ void Wsrep_async_failover::refresh_source_list(THD *thd,
      known, so we never remove a candidate we simply could not observe. */
   int pruned = 0;
   if (membership_known) {
-    std::vector<std::vector<std::string>> current;
-    acf_query_rows(
-        thd,
-        "SELECT HOST, PORT FROM "
-        "performance_schema.replication_asynchronous_connection_failover WHERE "
-        "CHANNEL_NAME='" +
-            acf_sql_quote(channel) + "'",
-        current);
     for (const auto &r : current) {
       if (r.size() < 2) continue;
       if (!in_desired(r[0], r[1])) {

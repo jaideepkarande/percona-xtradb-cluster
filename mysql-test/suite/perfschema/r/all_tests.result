@@ -27,9 +27,11 @@ MISSING DDL/DML TESTS
 ddl_pxc_cluster_view.test
 ddl_replication_asynchronous_connection_failover.test
 ddl_replication_asynchronous_connection_failover_managed.test
+ddl_wsrep_async_failover_status.test
 dml_pxc_cluster_view.test
 dml_replication_asynchronous_connection_failover.test
 dml_replication_asynchronous_connection_failover_managed.test
+dml_wsrep_async_failover_status.test
 idx_binary_log_transaction_compression_stats.test
 idx_log_status.test
 idx_malloc_stats.test
@@ -40,5 +42,6 @@ idx_replication_applier_global_filters.test
 idx_replication_asynchronous_connection_failover.test
 idx_replication_asynchronous_connection_failover_managed.test
 idx_user_defined_functions.test
+idx_wsrep_async_failover_status.test
 drop table t1;
 drop table t2;

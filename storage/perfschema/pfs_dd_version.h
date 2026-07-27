@@ -282,8 +282,12 @@
   80407:
    - Percona Server added performance_schema.account_failed_login_lock_stats
      table.
+
+  80408:
+   - PXC-5201: Percona XtraDB Cluster added
+     performance_schema.wsrep_async_failover_status table.
 */
 
-static const uint PFS_DD_VERSION = 80407;
+static const uint PFS_DD_VERSION = 80408;
 
 #endif /* PFS_DD_VERSION_H */

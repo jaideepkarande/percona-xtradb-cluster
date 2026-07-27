@@ -54,11 +54,13 @@ SET SESSION sql_log_bin = 1;
 --echo #
 --connection d2
 --disable_warnings
+--replace_result $SERVER_MYPORT_1 SERVER_MYPORT_1
 --eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$SERVER_MYPORT_1, SOURCE_USER='root', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'a2b'
 --enable_warnings
 
 --connection d1
 --disable_warnings
+--replace_result $SERVER_MYPORT_2 SERVER_MYPORT_2
 --eval CHANGE REPLICATION SOURCE TO SOURCE_HOST='127.0.0.1', SOURCE_PORT=$SERVER_MYPORT_2, SOURCE_USER='root', SOURCE_AUTO_POSITION=1 FOR CHANNEL 'b2a'
 --enable_warnings
 
