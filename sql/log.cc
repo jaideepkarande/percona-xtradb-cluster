@@ -1611,7 +1611,6 @@ void Query_logger::cleanup() {
   file_log_handler = nullptr;
 }
 
-
 bool Query_logger::slow_log_write(THD *thd, const char *query,
                                   size_t query_length, bool aggregate,
                                   ulonglong lock_usec, ulonglong exec_usec) {
