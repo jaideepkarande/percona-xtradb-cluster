@@ -315,8 +315,40 @@ if [[ $ENABLE_ASAN -eq 1 ]]; then
     fi
 fi
 COMMON_FLAGS="-DPERCONA_INNODB_VERSION=$PERCONA_SERVER_EXTENSION"
-export CFLAGS=" $COMMON_FLAGS -static-libgcc $MACHINE_SPECS_CFLAGS ${CFLAGS:-}"
-export CXXFLAGS=" $COMMON_FLAGS $MACHINE_SPECS_CFLAGS ${CXXFLAGS:-}"
+
+WITH_PGO="${WITH_PGO:-1}"
+if [ "${CMAKE_BUILD_TYPE:-}" = "Debug" ]; then
+    WITH_PGO=0
+fi
+
+WITH_LTO_FLAG="-DWITH_LTO=ON"
+HOST_RHEL=0
+HOST_AMZN=0
+HOST_DIST="unknown"
+if [ -f /etc/redhat-release ]; then
+    HOST_RHEL=$(rpm --eval %rhel 2>/dev/null || echo 0)
+    HOST_AMZN=$(rpm --eval %amzn 2>/dev/null || echo 0)
+    case "${HOST_AMZN}" in ''|*[!0-9]*) HOST_AMZN=0 ;; esac
+    case "${HOST_RHEL}" in ''|*[!0-9]*) HOST_RHEL=0 ;; esac
+    if [ "${HOST_AMZN}" -ge 2023 ] 2>/dev/null; then
+        :  # Amazon Linux 2023+ is fine, leave LTO=ON
+    elif [ "${HOST_AMZN}" -gt 0 ] 2>/dev/null; then
+        WITH_LTO_FLAG="-DWITH_LTO=OFF"   # Amazon Linux < 2023
+    elif [ "${HOST_RHEL}" -gt 0 ] 2>/dev/null && [ "${HOST_RHEL}" -le 8 ] 2>/dev/null; then
+        WITH_LTO_FLAG="-DWITH_LTO=OFF"   # RHEL/OL/Alma 8 and older
+    fi
+elif [ -f /etc/debian_version ]; then
+    HOST_DIST=$(lsb_release -sc 2>/dev/null || echo unknown)
+    case "${HOST_DIST}" in
+        focal|bullseye) WITH_LTO_FLAG="-DWITH_LTO=OFF" ;;
+    esac
+fi
+echo "build-binary.sh: ${WITH_LTO_FLAG} (HOST_RHEL=${HOST_RHEL} HOST_AMZN=${HOST_AMZN} HOST_DIST=${HOST_DIST})"
+
+TARBALL_WARN_SUPPRESS="-Wno-free-nonheap-object -Wno-stringop-overflow -Wno-stringop-overread -Wno-alloc-size-larger-than -Wno-array-bounds"
+
+export CFLAGS=" $COMMON_FLAGS -static-libgcc $MACHINE_SPECS_CFLAGS $TARBALL_WARN_SUPPRESS ${CFLAGS:-}"
+export CXXFLAGS=" $COMMON_FLAGS $MACHINE_SPECS_CFLAGS $TARBALL_WARN_SUPPRESS ${CXXFLAGS:-}"
 export MAKE_JFLAG="${MAKE_JFLAG:--j$PROCESSORS}"
 
 #
@@ -455,41 +487,69 @@ fi
         (cp -v runtime_output_directory/mysqld-debug $TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/mysqld) || true
         echo "mysqld in build in debug mode"
     else
-        cmake $SOURCEDIR/ ${CMAKE_OPTS:-} -DBUILD_CONFIG=mysql_release \
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE:-RelWithDebInfo} \
-            -DMINIMAL_RELWITHDEBINFO=OFF \
-            -DCMAKE_INSTALL_PREFIX="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME" \
-            -DMYSQL_DATADIR="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/data" \
-            -DROUTER_INSTALL_LIBDIR="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/lib/mysqlrouter/private" \
-            -DROUTER_INSTALL_PLUGINDIR="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/lib/mysqlrouter/plugin" \
-            -DCOMPILATION_COMMENT="$COMMENT" \
-            -DWITH_PAM=ON \
-            -DWITHOUT_ROCKSDB=ON \
-            -DWITHOUT_TOKUDB=ON \
-            -DWITH_INNODB_MEMCACHED=ON \
-            -DDOWNLOAD_BOOST=1 \
-            -DFORCE_INSOURCE_BUILD=1 \
-            -DWITH_SYSTEM_LIBS=ON \
-            -DWITH_PROTOBUF=bundled \
-            -DWITH_RAPIDJSON=bundled \
-            -DWITH_ICU=bundled \
-            -DWITH_LZ4=bundled \
-            -DWITH_EDITLINE=bundled \
-            -DWITH_LIBEVENT=bundled \
-            -DWITH_ZLIB=bundled \
-            -DWITH_ZSTD=bundled \
-            -DWITH_FIDO="$add_fido_plugin" \
-            -DWITH_NUMA=ON \
-            -DWITH_LDAP=system \
-            -DWITH_BOOST="$TARGETDIR/libboost" \
-            -DWITH_PACKAGE_FLAGS=OFF \
-            -DMYSQL_SERVER_SUFFIX=".$TAG" \
-            -DWITH_WSREP=ON \
-            -DWITH_PERCONA_TELEMETRY=ON \
-            -DWITH_UNIT_TESTS=0 \
+        CMAKE_COMMON_FLAGS=(
+            -DBUILD_CONFIG=mysql_release
+            -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-RelWithDebInfo}"
+            -DMINIMAL_RELWITHDEBINFO=OFF
+            -DCMAKE_INSTALL_PREFIX="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME"
+            -DMYSQL_DATADIR="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/data"
+            -DROUTER_INSTALL_LIBDIR="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/lib/mysqlrouter/private"
+            -DROUTER_INSTALL_PLUGINDIR="$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/lib/mysqlrouter/plugin"
+            -DCOMPILATION_COMMENT="$COMMENT"
+            -DWITH_PAM=ON
+            -DWITHOUT_ROCKSDB=ON
+            -DWITHOUT_TOKUDB=ON
+            -DWITH_INNODB_MEMCACHED=ON
+            -DDOWNLOAD_BOOST=1
+            -DFORCE_INSOURCE_BUILD=1
+            -DWITH_SYSTEM_LIBS=ON
+            -DWITH_PROTOBUF=bundled
+            -DWITH_RAPIDJSON=bundled
+            -DWITH_ICU=bundled
+            -DWITH_LZ4=bundled
+            -DWITH_EDITLINE=bundled
+            -DWITH_LIBEVENT=bundled
+            -DWITH_ZLIB=bundled
+            -DWITH_ZSTD=bundled
+            -DWITH_FIDO="$add_fido_plugin"
+            -DWITH_NUMA=ON
+            -DWITH_LDAP=system
+            -DWITH_BOOST="$TARGETDIR/libboost"
+            -DWITH_PACKAGE_FLAGS=OFF
+            -DMYSQL_SERVER_SUFFIX=".$TAG"
+            -DWITH_WSREP=ON
+            -DWITH_PERCONA_TELEMETRY=ON
+            -DWITH_UNIT_TESTS=0
+        )
+
+        PGO_FIRST_FLAG=""
+        [ "${WITH_PGO}" = "1" ] && PGO_FIRST_FLAG="-DFPROFILE_GENERATE=1"
+
+        cmake $SOURCEDIR/ ${CMAKE_OPTS:-} \
+            "${CMAKE_COMMON_FLAGS[@]}" \
+            $PGO_FIRST_FLAG \
+            "${WITH_LTO_FLAG}" \
             $WITH_MECAB_OPTION $OPENSSL_INCLUDE $OPENSSL_LIBRARY $CRYPTO_LIBRARY
 
         (make $MAKE_JFLAG $QUIET) || exit 1
+
+        if [ "${WITH_PGO}" = "1" ]; then
+            echo "PGO: running MTR profile suite to generate .gcda profile data"
+            (make run-profile-suite) || exit 1
+
+            echo "PGO: rebuilding with profile data (-DFPROFILE_USE=1)"
+            cd "$TARGETDIR"
+            rm -rf bld
+            mkdir bld
+            cd bld
+            cmake $SOURCEDIR/ ${CMAKE_OPTS:-} \
+                "${CMAKE_COMMON_FLAGS[@]}" \
+                -DFPROFILE_USE=1 \
+                "${WITH_LTO_FLAG}" \
+                $WITH_MECAB_OPTION $OPENSSL_INCLUDE $OPENSSL_LIBRARY $CRYPTO_LIBRARY
+            (make $MAKE_JFLAG $QUIET) || exit 1
+        fi
+
         (make install) || exit 1
         echo "mysqld in build in release mode"
     fi
@@ -511,12 +571,12 @@ fi
     ) || exit 1
     fi
 
-    # Look for the pxb 9.5 tarball
+    # Look for the pxb 9.7 tarball
     (
         cd "$TARGETDIR"
-        pxb_tar=$(ls -1td percona-xtrabackup-9.1.* | grep ".tar" | sort --version-sort | tail -n1)
+        pxb_tar=$(ls -1td percona-xtrabackup-9.7.* | grep ".tar" | sort --version-sort | tail -n1)
         if [[ -z $pxb_tar ]]; then
-            echo "Could not find percona-xtrabackup-9.1 tarball in $TARGETDIR.  Terminating."
+            echo "Could not find percona-xtrabackup-9.7 tarball in $TARGETDIR.  Terminating."
             exit 1
         fi
         # Remove the .tar.gz extension
@@ -525,22 +585,22 @@ fi
         if [[ $pxb_basename =~ x86_64 ]]; then
             pxb_basename="${pxb_basename%x86_64*}x86_64"
         fi
-        pxb_dir="pxb-9.5"
+        pxb_dir="pxb-9.7"
 
         mkdir -p pxc_extra
         cd pxc_extra
         if [[ -d ${pxb_basename} ]]; then
-            echo "Using existing pxb 9.5 directory : ${pxb_basename}"
+            echo "Using existing pxb 9.7 directory : ${pxb_basename}"
         else
-            echo "Removing existing percona-xtrabackup-9.5 basedir (if found)"
-            find . -maxdepth 1 -type d -name 'percona-xtrabackup-9.5' -exec rm -rf {} \+
+            echo "Removing existing percona-xtrabackup-9.7 basedir (if found)"
+            find . -maxdepth 1 -type d -name 'percona-xtrabackup-9.7' -exec rm -rf {} \+
 
-            echo "Extracting pxb 9.5 tarball"
+            echo "Extracting pxb 9.7 tarball"
             tar -xzf "../$pxb_tar"
         fi
         echo "Creating symlink $pxb_dir --> $pxb_basename"
-        rm -f pxb-9.5
-        ln -s ./${pxb_basename} pxb-9.5
+        rm -f pxb-9.7
+        ln -s ./${pxb_basename} pxb-9.7
     ) || exit 1
 
     # Look for the pxb 9.6 tarball
@@ -609,9 +669,9 @@ fi
 
     # Only copy over the bin and lib portions of the xtrabackup packages
     # Test cases and other files are not copied
-    mkdir -p "$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.5"
-    (cp -v -r $TARGETDIR/pxc_extra/pxb-9.5/bin/  $TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.5) || true
-    (cp -v -r $TARGETDIR/pxc_extra/pxb-9.5/lib/  $TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.5) || true
+    mkdir -p "$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.7"
+    (cp -v -r $TARGETDIR/pxc_extra/pxb-9.7/bin/  $TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.7) || true
+    (cp -v -r $TARGETDIR/pxc_extra/pxb-9.7/lib/  $TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.7) || true
 
     mkdir -p "$TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.6"
     (cp -v -r $TARGETDIR/pxc_extra/pxb-9.6/bin/  $TARGETDIR/usr/local/$PRODUCT_FULL_NAME/bin/pxc_extra/pxb-9.6) || true
@@ -626,7 +686,7 @@ fi
 # Patch needed libraries
 (
     LIBLIST="libgpg-error.so libproc2.so libnuma.so libgssapi.so libldap_r-2.4.so.2 liblber-2.4.so.2 libaio.so libprocps.so libgcrypt.so libtinfo.so libsasl2.so libbrotlidec.so libbrotlicommon.so librtmp.so libfreebl3.so libssl3.so libsmime3.so libnss3.so libnssutil3.so libplds4.so libplc4.so libnspr4.so libtirpc.so libncurses.so.5 libboost_program_options"
-    DIRLIST="bin bin/pxc_extra/pxb-8.4/bin bin/pxc_extra/pxb-9.5/bin bin/pxc_extra/pxb-9.6/bin lib bin/pxc_extra/pxb-8.4/lib/plugin bin/pxc_extra/pxb-9.5/lib/plugin bin/pxc_extra/pxb-9.6/lib/plugin lib/private lib/plugin lib/mysqlrouter/plugin lib/mysqlrouter/private"
+    DIRLIST="bin bin/pxc_extra/pxb-8.4/bin bin/pxc_extra/pxb-9.7/bin bin/pxc_extra/pxb-9.6/bin lib bin/pxc_extra/pxb-8.4/lib/plugin bin/pxc_extra/pxb-9.7/lib/plugin bin/pxc_extra/pxb-9.6/lib/plugin lib/private lib/plugin lib/mysqlrouter/plugin lib/mysqlrouter/private"
 
     LIBPATH=""
     OVERRIDE=false
@@ -673,7 +733,7 @@ fi
         for elf in $(find ${elf_path} -maxdepth 1 -exec file {} \; | grep 'ELF ' | cut -d':' -f1); do
             echo "Checking LD_RUNPATH for ${elf}"
             if [[ -z $(patchelf --print-rpath ${elf}) ]]; then
-                echo "Changing RUNPATH for ${elf}"
+                echo "* Changing RUNPATH for ${elf}"
                 patchelf --set-rpath ${r_path} ${elf}
             fi
             if [[ ! -z ${override} ]] && [[ ${override} == "true" ]]; then
@@ -720,14 +780,15 @@ fi
         export override=false
         set_runpath bin '$ORIGIN/../lib/private/'
         set_runpath bin/pxc_extra/pxb-8.4/bin '$ORIGIN/../../../../lib/private/'
-        set_runpath bin/pxc_extra/pxb-9.5/bin '$ORIGIN/../../../../lib/private/'
-        set_runpath bin/pxc_extra/pxb-9.6/bin '$ORIGIN/../../../../lib/private/'
         set_runpath lib '$ORIGIN/private/'
         set_runpath bin/pxc_extra/pxb-8.4/lib/plugin '$ORIGIN/../../../../../lib/private/'
-        set_runpath bin/pxc_extra/pxb-9.5/lib/plugin '$ORIGIN/../../../../../lib/private/'
+        set_runpath bin/pxc_extra/pxb-9.7/lib/plugin '$ORIGIN/../../../../../lib/private/'
         set_runpath bin/pxc_extra/pxb-9.6/lib/plugin '$ORIGIN/../../../../../lib/private/'
         set_runpath lib/plugin '$ORIGIN/../private/'
         set_runpath lib/private '$ORIGIN'
+        #  BINS PXB > 9.0
+        unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.6/bin '$ORIGIN/../../../../lib/private/'
+        unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.7/bin '$ORIGIN/../../../../lib/private/'
         #  LIBS MYSQLROUTER
         unset override && export override=true && set_runpath lib/mysqlrouter/plugin '$ORIGIN/:$ORIGIN/../private/:$ORIGIN/../../private/'
         unset override && export override=true && set_runpath lib/mysqlrouter/private '$ORIGIN/:$ORIGIN/../plugin/:$ORIGIN/../../private/'
@@ -739,8 +800,8 @@ fi
         #  BINS XTRABACKUP
         unset override && export override=true && set_runpath bin/pxc_extra/pxb-8.4/bin/xtrabackup '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
         unset override && export override=true && set_runpath bin/pxc_extra/pxb-8.4/bin/xtrabackup-debug '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
-        unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.5/bin/xtrabackup '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
-        unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.5/bin/xtrabackup-debug '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
+        unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.7/bin/xtrabackup '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
+        unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.7/bin/xtrabackup-debug '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
         unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.6/bin/xtrabackup '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
         unset override && export override=true && set_runpath bin/pxc_extra/pxb-9.6/bin/xtrabackup-debug '$ORIGIN/../../../../lib/private/:$ORIGIN/../lib/private/'
 

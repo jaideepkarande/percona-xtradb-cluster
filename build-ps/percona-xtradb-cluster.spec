@@ -78,6 +78,12 @@ Prefix: %{_sysconfdir}
 %{?with_mecab: %global mecab_option -DWITH_MECAB=%{with_mecab}}
 %{?with_mecab: %global mecab 1}
 
+%{!?without_pgo: %global pgo 1}
+
+%if 0%{?rhel} == 8
+%global _find_debuginfo_dwz_opts %{nil}
+%endif
+
  %define boost_req boost-devel
  %define gcc_req gcc-c++
 
@@ -381,12 +387,15 @@ Requires:             percona-xtradb-cluster-server = %{version}-%{release}
 Requires:             percona-xtradb-cluster-client = %{version}-%{release}
 Requires:             percona-xtradb-cluster-devel = %{version}-%{release}
 Requires:             percona-xtradb-cluster-test = %{version}-%{release}
+%if 0%{?rhel} != 8
 Requires:             percona-xtradb-cluster-debuginfo = %{version}-%{release}
+%endif
 Requires:             percona-xtradb-cluster-garbd = %{version}-%{release}
 
 %description -n percona-xtradb-cluster-full
 This is a meta-package which provides the full suite of Percona XtraDB
-Cluster 56 packages including the debuginfo. Recommended.
+Cluster 56 packages including the debuginfo (except on el8, where the
+debuginfo subpackage is not required). Recommended.
 # ----------------------------------------------------------------------------
 
 %package -n percona-xtradb-cluster-server
@@ -426,8 +435,9 @@ BuildRequires: 		selinux-policy-devel
 Requires:             percona-xtradb-cluster-shared-compat = %{version}-%{release}
 %endif
 %endif
-Requires:             socat iproute perl-DBI perl-DBD-MySQL
-Requires:       perl(Data::Dumper) which qpress
+Requires:             socat iproute perl-DBI
+Requires:             perl(Data::Dumper) which
+Recommends:           perl-DBD-MySQL
 %if 0%{?systemd}
 Requires(post):   systemd
 Requires(preun):  systemd
@@ -439,16 +449,23 @@ Requires(preun):  /sbin/service
 %endif
 Obsoletes:      community-mysql-bench
 Obsoletes:      mysql-bench
-Obsoletes:      mariadb-connector-c-config
-Obsoletes:      mariadb-backup
-Obsoletes:      mariadb-bench
-Obsoletes:      mariadb-server
-Obsoletes:      mariadb-server-galera
-Obsoletes:      mariadb-server-utils
-Obsoletes:      mariadb-galera-server
-Obsoletes:      mariadb-gssapi-server
-Obsoletes:      mariadb-oqgraph-engine
-Provides:       mysql-server MySQL-server
+Obsoletes:      mariadb-connector-c-config mariadb11.8-connector-c-config
+Obsoletes:      mariadb-backup mariadb11.8-backup
+Obsoletes:      mariadb-bench mariadb11.8-bench
+Obsoletes:      mariadb-server mariadb11.8-server
+Obsoletes:      mariadb-server-galera mariadb11.8-server-galera
+Obsoletes:      mariadb-server-utils mariadb11.8-server-utils
+Obsoletes:      mariadb-galera-server mariadb11.8-galera-server
+Obsoletes:      mariadb-gssapi-server mariadb11.8-gssapi-server
+Obsoletes:      mariadb-oqgraph-engine mariadb11.8-oqgraph-engine
+Obsoletes:      mariadb-client-utils mariadb11.8-client-utils
+Obsoletes:      mysql8.4-server < 99
+Obsoletes:      mysql8.4 < 99
+Obsoletes:      mysql8.4-common < 99
+Obsoletes:      mysql8.4-errmsg < 99
+Provides:       mysql-server = %{version}-%{release}
+Provides:       mysql-server%{?_isa} = %{version}-%{release}
+Provides:       MySQL-server%{?_isa} = %{version}-%{release}
 Conflicts:      Percona-SQL-server-50 Percona-Server-server-51 Percona-Server-server-55 Percona-Server-server-56 Percona-Server-server-57
 
 %description -n percona-xtradb-cluster-server
@@ -475,6 +492,7 @@ Group:          Applications/Databases
 Provides:       mysql-client MySQL-client MySQL Percona-XtraDB-Cluster-client mysql
 Conflicts:      Percona-SQL-client-50 Percona-Server-client-51 Percona-Server-client-55 Percona-XtraDB-Cluster-client-55
 Requires:       perl-DBI
+Requires:       percona-xtradb-cluster-client-plugins = %{version}-%{release}
 
 %description -n percona-xtradb-cluster-client
 Percona XtraDB Cluster is based on the Percona Server database server and
@@ -497,7 +515,9 @@ https://www.percona.com/mysql/software/percona-xtradb-cluster/
 Requires:       percona-xtradb-cluster-client perl
 Summary:        Percona XtraDB Cluster - Test suite
 Group:          Applications/Databases
-Provides:       mysql-test
+Provides:       mysql-test = %{version}-%{release}
+Provides:       mysql-test%{?_isa} = %{version}-%{release}
+Provides:       MySQL-test%{?_isa} = %{version}-%{release}
 Requires:       perl(Socket), perl(Time::HiRes), perl(Data::Dumper), perl(Test::More), perl(Env)
 Conflicts:      Percona-SQL-test-50 Percona-Server-test-51 Percona-Server-test-55 Percona-XtraDB-Cluster-test-55
 Obsoletes:      mysql-test < %{version}-%{release}
@@ -524,7 +544,8 @@ https://www.percona.com/mysql/software/percona-xtradb-cluster/
 %package -n percona-xtradb-cluster-devel
 Summary:        Percona XtraDB Cluster - Development header files and libraries
 Group:          Applications/Databases
-Provides:       mysql-devel
+Provides:       mysql-devel = %{version}-%{release}
+Provides:       mysql-devel%{?_isa} = %{version}-%{release}
 %if "%rhel" == "6"
 Conflicts:      Percona-SQL-devel-50 Percona-Server-devel-51 Percona-Server-devel-55 Percona-XtraDB-Cluster-devel-55 /usr/bin/mysql_config
 %else
@@ -555,7 +576,9 @@ https://www.percona.com/mysql/software/percona-xtradb-cluster/
 %package -n percona-xtradb-cluster-shared
 Summary:        Percona XtraDB Cluster - Shared libraries
 Group:          Applications/Databases
-Provides:       mysql-shared >= %{mysql_version} mysql-libs >= %{mysql_version}
+Provides:       mysql-libs = %{version}-%{release}
+Provides:       mysql-libs%{?_isa} = %{version}-%{release}
+Provides:       mysql-shared
 Conflicts:      Percona-Server-shared-56
 Conflicts:      Percona-Server-shared-57
 %if "%rhel" > "6"
@@ -636,15 +659,16 @@ Provides:      mysql-router
 The Percona MySQL Router software delivers a fast, multi-threaded way of
 routing connections from MySQL Clients to MySQL Servers.
 
-%package   -n   percona-xtradb-cluster-mysql-router-devel
-Summary:        Development header files and libraries for Percona MySQL Router
+%package   -n   percona-xtradb-cluster-client-plugins
+Summary:        Percona XtraDB Cluster - Client Plugins
 Group:          Applications/Databases
-Provides:       percona-xtradb-cluster-mysql-router-devel = %{version}-%{release}
-Obsoletes:      mysql-router-devel percona-mysql-router-devel
+Provides:       mysql-client-plugins = %{version}-%{release}
+Provides:       mysql-client-plugins%{?_isa} = %{version}-%{release}
 
-%description -n percona-xtradb-cluster-mysql-router-devel
-This package contains the development header files and libraries
-necessary to develop Percona MySQL Router applications.
+%description -n percona-xtradb-cluster-client-plugins
+This package contains shared plugins for Percona XtraDB Cluster client
+applications, including authentication plugins for LDAP, Kerberos, WebAuthn,
+OpenID Connect, and OCI.
 
 %package   -n   percona-xtradb-cluster-icu-data-files
 Summary:        MySQL packaging of ICU data files
@@ -727,9 +751,9 @@ rm -rf usr
 rm -f *.rpm
 popd
 
-mkdir pxb-9.5
-pushd pxb-9.5
-yumdownloader percona-xtrabackup-91-9.1.0
+mkdir pxb-9.7
+pushd pxb-9.7
+yumdownloader percona-xtrabackup-97-9.7.1
 rpm2cpio *.rpm | cpio --extract --make-directories --verbose
 mv usr/bin ./
 mv usr/lib64 ./
@@ -756,6 +780,60 @@ rm -f *.rpm
 popd
 
 popd
+
+%if 0%{?add_fido_plugins}
+%global cmake_fido_flags -DWITH_FIDO=bundled
+%else
+%global cmake_fido_flags -DWITH_FIDO=none
+%endif
+
+%if 0%{?systemd}
+%global cmake_systemd_flags -DWITH_SYSTEMD=OFF
+%else
+%global cmake_systemd_flags %{nil}
+%endif
+
+%if 0%{?rhel} > 8
+%global cmake_lto_flags -DWITH_LTO=ON
+%else
+%global cmake_lto_flags %{nil}
+%endif
+
+%global cmake_common_flags \\\
+           -DBUILD_CONFIG=mysql_release \\\
+           -DINSTALL_LAYOUT=RPM \\\
+           -DDOWNLOAD_BOOST=1 -DWITH_BOOST=build-ps/boost \\\
+           -DWITH_PACKAGE_FLAGS=OFF \\\
+           -DCMAKE_C_FLAGS="$CFLAGS" \\\
+           -DCMAKE_CXX_FLAGS="$CXXFLAGS" \\\
+           -DCMAKE_INSTALL_PREFIX=%{_prefix} \\\
+           -DWITH_EMBEDDED_SERVER=OFF \\\
+           -DWITH_EMBEDDED_SHARED_LIBRARY=0 \\\
+           -DWITH_INNODB_MEMCACHED=ON \\\
+           -DUSE_LD_LLD=0 \\\
+           -DWITH_AUTHENTICATION_CLIENT_PLUGINS=1 \\\
+           -DWITH_CURL=system \\\
+           %{cmake_systemd_flags} \\\
+           -DENABLE_DTRACE=OFF \\\
+           -DWITH_SSL=system \\\
+           -DWITH_ZLIB=bundled \\\
+           -DWITH_READLINE=system \\\
+           -DWITHOUT_TOKUDB=ON \\\
+           -DINSTALL_MYSQLSHAREDIR=share/percona-xtradb-cluster \\\
+           -DINSTALL_SUPPORTFILESDIR=share/percona-xtradb-cluster \\\
+           -DMYSQL_UNIX_ADDR="/var/lib/mysql/mysql.sock" \\\
+           -DFEATURE_SET="%{feature_set}" \\\
+           -DWITH_WSREP=ON \\\
+           -DWITH_PERCONA_TELEMETRY=ON \\\
+           -DWITH_LDAP=system \\\
+           -DWITH_INNODB_DISALLOW_WRITES=ON \\\
+           -DWITH_ZSTD=bundled \\\
+           %{cmake_fido_flags} \\\
+           -DWITH_UNIT_TESTS=0 \\\
+           -DWITH_SCALABILITY_METRICS=ON \\\
+           -DMYSQL_SERVER_SUFFIX=".%{rel}" \\\
+           %{cmake_lto_flags} \\\
+           %{?mecab_option}
 
 # Build debug mysqld and libmysqld.a
 mkdir debug
@@ -787,50 +865,10 @@ mkdir debug
                 -e 's/ $//'`
   # XXX: MYSQL_UNIX_ADDR should be in cmake/* but mysql_version is included before
   # XXX: install_layout so we can't just set it based on INSTALL_LAYOUT=RPM
-  ${CMAKE} ../ -DBUILD_CONFIG=mysql_release -DINSTALL_LAYOUT=RPM \
-           -DDOWNLOAD_BOOST=1 -DWITH_BOOST=build-ps/boost \
-           -DWITH_PACKAGE_FLAGS=OFF \
-           -DCMAKE_C_FLAGS="$CFLAGS" \
-           -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
-           -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=%{_prefix} \
-           -DWITH_EMBEDDED_SERVER=OFF \
-           -DWITH_INNODB_MEMCACHED=ON \
-           -DUSE_LD_LLD=0 \
-           -DWITH_AUTHENTICATION_CLIENT_PLUGINS=1 \
-           -DWITH_CURL=system \
-%if 0%{?systemd}
-           -DWITH_SYSTEMD=OFF \
-%endif
-           -DENABLE_DTRACE=OFF \
-           -DWITH_SSL=system \
-           -DWITH_ZLIB=bundled \
-           -DWITH_READLINE=system \
-           -DWITHOUT_TOKUDB=ON \
-           -DINSTALL_MYSQLSHAREDIR=share/percona-xtradb-cluster \
-           -DINSTALL_SUPPORTFILESDIR=share/percona-xtradb-cluster \
-           -DMYSQL_UNIX_ADDR="/var/lib/mysql/mysql.sock" \
-           -DFEATURE_SET="%{feature_set}" \
+  ${CMAKE} ../ \
+           -DCMAKE_BUILD_TYPE=Debug \
+           %{cmake_common_flags} \
            -DCOMPILATION_COMMENT="%{compilation_comment_debug}" \
-           -DWITH_WSREP=ON \
-           -DWITH_PERCONA_TELEMETRY=ON \
-           -DWITH_LDAP=system \
-           -DWITH_INNODB_DISALLOW_WRITES=ON \
-           -DWITH_EMBEDDED_SERVER=0 \
-           -DWITH_EMBEDDED_SHARED_LIBRARY=0 \
-           -DWITH_INNODB_MEMCACHED=1 \
-           -DWITH_ZSTD=bundled \
-%if 0%{?add_fido_plugins}
-           -DWITH_FIDO=bundled \
-%else
-           -DWITH_FIDO=none \
-%endif
-           -DWITH_UNIT_TESTS=0 \
-           -DWITH_SCALABILITY_METRICS=ON \
-           -DMYSQL_SERVER_SUFFIX=".%{rel}" \
-%if 0%{?rhel} > 8
-           -DWITH_LTO=ON \
-%endif
-           %{?mecab_option} \
            -DWITH_PAM=ON  %{TOKUDB_FLAGS} %{TOKUDB_DEBUG_ON} %{ROCKSDB_FLAGS}
   # echo BEGIN_DEBUG_CONFIG ; egrep '^#define' include/config.h ; echo END_DEBUG_CONFIG
   make %{?_smp_mflags}
@@ -841,55 +879,39 @@ mkdir release
   cd release
   # XXX: MYSQL_UNIX_ADDR should be in cmake/* but mysql_version is included before
   # XXX: install_layout so we can't just set it based on INSTALL_LAYOUT=RPM
-  ${CMAKE} ../ -DBUILD_CONFIG=mysql_release -DINSTALL_LAYOUT=RPM \
-           -DDOWNLOAD_BOOST=1 -DWITH_BOOST=build-ps/boost \
-           -DWITH_PACKAGE_FLAGS=OFF \
-           -DCMAKE_C_FLAGS="$CFLAGS" \
-           -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
-           -DCMAKE_BUILD_TYPE=RelWithDebInfo  -DCMAKE_INSTALL_PREFIX=%{_prefix} \
+  ${CMAKE} ../ \
+           %{?pgo:-DFPROFILE_GENERATE=1} \
+           -DCMAKE_BUILD_TYPE=RelWithDebInfo \
            -DMINIMAL_RELWITHDEBINFO=OFF \
-           -DWITH_EMBEDDED_SERVER=OFF \
-           -DWITH_INNODB_MEMCACHED=ON \
-           -DUSE_LD_LLD=0 \
-           -DWITH_AUTHENTICATION_CLIENT_PLUGINS=1 \
-           -DWITH_CURL=system \
-%if 0%{?systemd}
-           -DWITH_SYSTEMD=OFF \
-%endif
-           -DENABLE_DTRACE=OFF \
-           -DWITH_SSL=system \
-           -DWITH_ZLIB=bundled \
-           -DWITH_READLINE=system \
-           -DWITHOUT_TOKUDB=ON \
-           -DINSTALL_MYSQLSHAREDIR=share/percona-xtradb-cluster \
-           -DINSTALL_SUPPORTFILESDIR=share/percona-xtradb-cluster \
-           -DMYSQL_UNIX_ADDR="/var/lib/mysql/mysql.sock" \
-           -DFEATURE_SET="%{feature_set}" \
+           %{cmake_common_flags} \
            -DCOMPILATION_COMMENT="%{compilation_comment_release}" \
-           -DWITH_WSREP=ON \
-           -DWITH_PERCONA_TELEMETRY=ON \
-           -DWITH_LDAP=system \
-           -DWITH_INNODB_DISALLOW_WRITES=ON \
-           -DWITH_EMBEDDED_SERVER=0 \
-           -DWITH_EMBEDDED_SHARED_LIBRARY=0 \
-           -DWITH_INNODB_MEMCACHED=1 \
-           -DWITH_ZSTD=bundled \
-%if 0%{?add_fido_plugins}
-           -DWITH_FIDO=bundled \
-%else
-           -DWITH_FIDO=none \
-%endif
-           -DWITH_UNIT_TESTS=0 \
-           -DWITH_SCALABILITY_METRICS=ON \
-%if 0%{?rhel} > 8
-           -DWITH_LTO=ON \
-%endif
-           %{?mecab_option} \
-           -DMYSQL_SERVER_SUFFIX=".%{rel}" \
            -DWITH_PAM=ON  %{TOKUDB_FLAGS} %{TOKUDB_DEBUG_OFF} %{ROCKSDB_FLAGS}
   # echo BEGIN_NORMAL_CONFIG ; egrep '^#define' include/config.h ; echo END_NORMAL_CONFIG
   make %{?_smp_mflags}
 )
+
+%if 0%{?pgo}
+(
+  pushd release
+  ulimit -c 0
+  make run-profile-suite
+  rm -r $(readlink mysql-test/var)
+  find . -maxdepth 2 -name 'core' -o -name 'core.*' | xargs -r rm -f
+  popd
+
+  rm -rf release
+  mkdir release && pushd release
+  ${CMAKE} ../ \
+           -DFPROFILE_USE=1 \
+           -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+           -DMINIMAL_RELWITHDEBINFO=OFF \
+           %{cmake_common_flags} \
+           -DCOMPILATION_COMMENT="%{compilation_comment_release}" \
+           -DWITH_PAM=ON  %{TOKUDB_FLAGS} %{TOKUDB_DEBUG_OFF} %{ROCKSDB_FLAGS}
+  make %{?_smp_mflags}
+  popd
+)
+%endif # pgo
 
 # For the debuginfo extraction stage, some source files are not located in the release
 # and debug dirs, but in the source dir. Make a link there to avoid errors in the
@@ -990,6 +1012,11 @@ popd
   make DESTDIR=$RBR install
 )
 
+# Defensive cleanup: a crashed mysqld/mtr process during the PGO profiling
+# run (or any other test run) can leave a core dump behind in the mysql-test
+# tree; such a binary embeds the buildroot path and trips check-buildroot.
+find $RBR%{_datadir}/mysql-test -maxdepth 1 \( -name 'core' -o -name 'core.*' \) -exec rm -f {} +
+
 # Install logrotate and autostart
 install -m 644 $MBD/release/support-files/mysql-log-rotate $RBR%{_sysconfdir}/logrotate.d/mysql
 install -D -m 0644 $MBD/build-ps/rpm/mysqld.cnf %{buildroot}%{_sysconfdir}/my.cnf
@@ -999,6 +1026,9 @@ install -d %{buildroot}%{_sysconfdir}/my.cnf.d
   install -D -m 0644 $MBD/build-ps/rpm/mysql.service $RBR%{_unitdir}/mysql.service
   install -D -m 0644 $MBD/build-ps/rpm/mysql@.service $RBR%{_unitdir}/mysql@.service
   install -D -m 0644 $MBD/build-ps/rpm/mysql.bootstrap $RBR%{_sysconfdir}/sysconfig/mysql.bootstrap
+  install -D -m 0644 $MBD/build-ps/rpm/clustercheck.socket $RBR%{_unitdir}/clustercheck.socket
+  install -D -m 0644 $MBD/build-ps/rpm/clustercheck@.service $RBR%{_unitdir}/clustercheck@.service
+  install -D -m 0644 $MBD/scripts/clustercheck.cnf.example $RBR%{_datadir}/mysql/clustercheck.cnf.example
 %else
   install -m 755 $MBD/release/support-files/mysql.server $RBR%{_sysconfdir}/init.d/mysql
 %endif
@@ -1021,6 +1051,8 @@ install -D -p -m 0644 packaging/rpm-common/mysqlrouter.conf.in %{buildroot}%{_sy
 %{__rm} -f $RBR/usr/include/kmippp.h
 %{__rm} -f $RBR/usr/lib/libkmip.a
 %{__rm} -f $RBR/usr/lib/libkmippp.a
+%{__rm} -f $RBR/usr/lib/libkmipclient.a
+%{__rm} -f $RBR/usr/lib/libkmipcore.a
 %{__rm} -f $RBR/usr/lib/libgalera_smm.so
 %{__rm} -f $RBR/usr/share/garb-systemd
 %{__rm} -f $RBR/usr/share/garb.cnf
@@ -1080,17 +1112,15 @@ ln -s "galera4/libgalera_smm.so" "$RBR/%{_libdir}/"
 install -d $RBR%{galera_docs}
 install -m 644 $MBD/%{galera_src_dir}/COPYING                     \
     $RBR%{galera_docs}/COPYING
-install -m 644 $MBD/%{galera_src_dir}/packages/rpm/README     \
+install -m 644 $MBD/%{galera_src_dir}/README                  \
     $RBR%{galera_docs}/README
-install -m 644 $MBD/%{galera_src_dir}/packages/rpm/README-MySQL \
-    $RBR%{galera_docs}/README-MySQL
 install -m 644 $MBD/%{galera_src_dir}/asio/LICENSE_1_0.txt    \
     $RBR%{galera_docs}/LICENSE.asio
 
 install -d $RBR%{galera_docs2}
 install -m 644 $MBD/%{galera_src_dir}/COPYING                     \
     $RBR%{galera_docs2}/COPYING
-install -m 644 $MBD/%{galera_src_dir}/packages/rpm/README     \
+install -m 644 $MBD/%{galera_src_dir}/README                  \
     $RBR%{galera_docs2}/README
 
 install -d $RBR%{_mandir}/man8
@@ -1101,6 +1131,8 @@ install -d $RBR%{_libdir}/mysql
 #%if 0%{?mecab}
 #    mv $RBR%{_libdir}/mecab $RBR%{_libdir}/mysql
 #%endif
+
+find $RBR -name 'core.[0-9]*' -type f -delete || true
 
 ##############################################################################
 #  Post processing actions, i.e. when installed
@@ -1584,10 +1616,6 @@ fi
 # ----------------------------------------------------------------------
 # Clean up the BuildRoot after build is done
 # ----------------------------------------------------------------------
-%clean
-[ "$RPM_BUILD_ROOT" != "/" ] && [ -d $RPM_BUILD_ROOT ] \
-  && rm -rf $RPM_BUILD_ROOT;
-
 ##############################################################################
 #  Files section
 ##############################################################################
@@ -1662,92 +1690,9 @@ fi
 %dir %{_libdir}/mysql/private
 %attr(755, root, root) %{_libdir}/mysql/private/libprotobuf-lite.so.*
 %attr(755, root, root) %{_libdir}/mysql/private/libprotobuf.so.*
-%attr(755, root, root) %{_libdir}/mysql/private/libfido2.so.*
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_bad_any_cast_impl.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_bad_optional_access.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_bad_variant_access.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_base.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_city.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_civil_time.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_cord_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_cord.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_cordz_functions.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_cordz_handle.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_cordz_info.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_cordz_sample_token.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_crc32c.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_crc_cord_state.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_crc_cpu_detect.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_crc_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_debugging_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_demangle_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_die_if_null.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_examine_stack.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_exponential_biased.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_failure_signal_handler.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_commandlineflag_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_commandlineflag.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_config.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_marshalling.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_parse.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_private_handle_accessor.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_program_name.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_reflection.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_usage_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_flags_usage.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_graphcycles_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_hash.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_hashtablez_sampler.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_int128.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_kernel_timeout_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_leak_check.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_entry.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_flags.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_globals.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_initialize.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_check_op.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_conditions.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_format.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_globals.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_log_sink_set.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_message.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_nullguard.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_internal_proto.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_severity.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_log_sink.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_low_level_hash.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_malloc_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_periodic_sampler.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_distributions.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_distribution_test_util.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_platform.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_pool_urbg.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_randen_hwaes_impl.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_randen_hwaes.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_randen_slow.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_randen.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_internal_seed_material.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_seed_gen_exception.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_random_seed_sequences.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_raw_hash_set.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_raw_logging_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_scoped_set_env.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_spinlock_wait.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_stacktrace.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_statusor.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_status.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_strerror.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_str_format_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_strings_internal.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_strings.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_string_view.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_symbolize.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_synchronization.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_throw_delegate.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_time.so
-%attr(755, root, root) %{_libdir}/mysql/private/libabsl_time_zone.so
+%attr(755, root, root) %{_libdir}/mysql/private/libfido2.so.1.*
+%{_libdir}/mysql/private/libfido2.so.1
+%attr(755, root, root) %{_libdir}/mysql/private/libabsl_*.so
 %attr(755, root, root) %{_libdir}/mysql/private/libicui18n.so.*
 %attr(755, root, root) %{_libdir}/mysql/private/libicustubdata.so.*
 %attr(755, root, root) %{_libdir}/mysql/private/libicuuc.so.*
@@ -1759,17 +1704,25 @@ fi
 
 %attr(755, root, root) %{_libdir}/mysql/plugin/*.so*
 %attr(755, root, root) %{_libdir}/mysql/plugin/debug/*.so*
+%exclude %{_libdir}/mysql/plugin/authentication_ldap_sasl_client.so
+%exclude %{_libdir}/mysql/plugin/authentication_kerberos_client.so
+%exclude %{_libdir}/mysql/plugin/authentication_openid_connect_client.so
+%exclude %{_libdir}/mysql/plugin/authentication_oci_client.so
+%exclude %{_libdir}/mysql/plugin/mysql_native_password.so
+%exclude %{_libdir}/mysql/plugin/dialog.so
+%exclude %{_libdir}/mysql/plugin/debug/authentication_ldap_sasl_client.so
+%exclude %{_libdir}/mysql/plugin/debug/authentication_kerberos_client.so
+%exclude %{_libdir}/mysql/plugin/debug/authentication_openid_connect_client.so
+%exclude %{_libdir}/mysql/plugin/debug/authentication_oci_client.so
+%exclude %{_libdir}/mysql/plugin/debug/mysql_native_password.so
+%exclude %{_libdir}/mysql/plugin/debug/dialog.so
+%if 0%{?add_fido_plugins}
+%exclude %{_libdir}/mysql/plugin/authentication_webauthn_client.so
+%exclude %{_libdir}/mysql/plugin/debug/authentication_webauthn_client.so
+%endif
 
 %if 0%{?mecab}
 %{_libdir}/mysql/mecab
-%endif
-
-%if "%rhel" == "5"
-    %attr(755, root, root) %{_datadir}/percona-xtradb-cluster/
-%endif
-
-%if "%rhel" >= "6"
-    %attr(755, root, root) %{_datarootdir}/percona-xtradb-cluster/
 %endif
 
 %if %{WITH_TCMALLOC}
@@ -1785,6 +1738,9 @@ fi
 %if 0%{?systemd}
 %attr(644, root, root) %{_unitdir}/mysql.service
 %attr(644, root, root) %{_unitdir}/mysql@.service
+%attr(644, root, root) %{_unitdir}/clustercheck.socket
+%attr(644, root, root) %{_unitdir}/clustercheck@.service
+%attr(644, root, root) %{_datadir}/mysql/clustercheck.cnf.example
 %attr(644, root, root) %config(noreplace,missingok) %{_sysconfdir}/sysconfig/mysql.bootstrap
 %attr(755, root, root) %{_bindir}/mysql-systemd
 %else
@@ -1794,10 +1750,10 @@ fi
 # This is a symlink
 %{_libdir}/libgalera_smm.so
 %{_libdir}/galera4/libgalera_smm.so
+%attr(755, root, root) %{_libdir}/mysql/libgalera_smm.so
 %attr(0755,root,root) %dir %{galera_docs}
 %doc %attr(0644,root,root) %{galera_docs}/COPYING
 %doc %attr(0644,root,root) %{galera_docs}/README
-%doc %attr(0644,root,root) %{galera_docs}/README-MySQL
 %doc %attr(0644,root,root) %{galera_docs}/LICENSE.asio
 %config(noreplace) %{_sysconfdir}/my.cnf
 %dir %{_sysconfdir}/my.cnf.d
@@ -2071,6 +2027,29 @@ rm -rf %{pxc_telemetry}
 %dir %attr(755, mysqlrouter, mysqlrouter) /var/log/mysqlrouter
 %dir %attr(755, mysqlrouter, mysqlrouter) /var/run/mysqlrouter
 
+
+%files -n percona-xtradb-cluster-client-plugins
+%defattr(-, root, root, -)
+%attr(755, root, root) %{_libdir}/mysql/plugin/authentication_ldap_sasl_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/authentication_kerberos_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/authentication_openid_connect_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/authentication_oci_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/mysql_native_password.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/dialog.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/authentication_ldap_sasl_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/authentication_kerberos_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/authentication_openid_connect_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/authentication_oci_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/mysql_native_password.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/dialog.so
+%if 0%{?add_fido_plugins}
+%attr(755, root, root) %{_libdir}/mysql/plugin/authentication_webauthn_client.so
+%attr(755, root, root) %{_libdir}/mysql/plugin/debug/authentication_webauthn_client.so
+%endif
+
+%post -n percona-xtradb-cluster-client-plugins -p /sbin/ldconfig
+
+%postun -n percona-xtradb-cluster-client-plugins -p /sbin/ldconfig
 
 %files -n percona-xtradb-cluster-icu-data-files
 %defattr(-, root, root, -)

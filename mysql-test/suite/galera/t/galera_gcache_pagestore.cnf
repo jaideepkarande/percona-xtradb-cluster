@@ -1,8 +1,8 @@
 !include ../galera_2nodes.cnf
 
 [mysqld.1]
-wsrep_provider_options='base_port=@mysqld.1.#galera_port;gcache.size=1M;gcache.page_size=1M'
+wsrep_provider_options='base_port=@mysqld.1.#galera_port;gcache.size=1M;gcache.page_size=1M;@ENV.WSREP_PROVIDER_TIMEOUTS'
 
 [mysqld.2]
-wsrep_provider_options='base_port=@mysqld.2.#galera_port;gcache.size=1M;gcache.page_size=1M'
+wsrep_provider_options='base_port=@mysqld.2.#galera_port;gcache.size=1M;gcache.page_size=1M;@ENV.WSREP_PROVIDER_TIMEOUTS'
 

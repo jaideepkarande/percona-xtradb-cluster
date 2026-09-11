@@ -127,8 +127,8 @@ declare -a RC
 # major - mandatory, multiple digits
 # minor - mandatory, multiple digits
 # patch - optional, multiple digits
-# build - optional, multiple digits
-xb_version_regex=' [0-9]\+\(\.[0-9]\+\)\{1,2\}\(-[0-9]\+\)\?'
+# build - optional, multiple digits or rc<number>
+xb_version_regex=' [0-9]\+\(\.[0-9]\+\)\{1,2\}\(-\(rc[0-9]\+\|[0-9]\+\)\)\?'
 # default XB (xtrabackup-binary) to use.
 XTRABACKUP_BIN=xtrabackup
 DATA="${WSREP_SST_OPT_DATA}"
@@ -173,21 +173,21 @@ DATA="${WSREP_SST_OPT_DATA}"
 XTRABACKUP_PATH_PREFIX="$(dirname $0)/pxc_extra/pxb-"
 
 # XB path compatible with the current version of PXC
-XTRABACKUP_THIS_VER_PATH="$(dirname $0)/pxc_extra/pxb-9.6"
+XTRABACKUP_THIS_VER_PATH="$(dirname $0)/pxc_extra/pxb-9.7"
 
 # XB path compatible with prev PXC version. It may be prev Innovative release or LTS
 # if current PXC version is 1st Innovative.
 # Note that this can be the same as XTRABACKUP_PREV_LTS_VER_PATH
-XTRABACKUP_PREV_VER_PATH="$(dirname $0)/pxc_extra/pxb-9.5"
+XTRABACKUP_PREV_VER_PATH="$(dirname $0)/pxc_extra/pxb-9.6"
 
 # XB path compatible previous PXC LTS version
 XTRABACKUP_PREV_LTS_VER_PATH="$(dirname $0)/pxc_extra/pxb-8.4"
 
 # Minimum PXB required versions for this node to work
 # To be able to service this version
-XB_THIS_REQUIRED_VERSION="9.6.0-1"
+XB_THIS_REQUIRED_VERSION="9.7.1-rc1"
 # To be able to service previous version
-XB_PREV_REQUIRED_VERSION="9.1.0"
+XB_PREV_REQUIRED_VERSION="9.6.0-1"
 # To be able to service previous LTS version
 XB_PREV_LTS_REQUIRED_VERSION="8.4.0"
 
@@ -195,7 +195,7 @@ XB_PREV_LTS_REQUIRED_VERSION="8.4.0"
 REQUIRED_DONOR_MYSQL_LTS_VERSION="8.4"
 # ...or to be this previous version (note that it may be LTS as well if this is
 # 1st innovative)
-REQUIRED_DONOR_MYSQL_PREV_VERSION="9.5"
+REQUIRED_DONOR_MYSQL_PREV_VERSION="9.6"
 
 # These files carry some important information in form of GTID of the data
 # that is being backed up.
@@ -1630,7 +1630,10 @@ function initialize_pxb_commands()
     # Starting from PXB 9.6.0-1, --lock-ddl=REDUCED is available in
     # the community version. 9.6.0-1 is the minimum required version for this
     # script to work (see XB_THIS_REQUIRED_VERSION))
-    lock_ddl="--lock-ddl=REDUCED"
+    #
+    # Due to https://perconadev.atlassian.net/browse/PXB-3818 make ON the defaut
+    # Once PXB-3818 is fixed, we can revert to REDUCED by default.
+    lock_ddl="--lock-ddl=ON"
     [[ -n "$lock_ddl_opt" ]] && lock_ddl="--lock-ddl=$lock_ddl_opt"
     wsrep_log_info "Using PXB option ${lock_ddl} for SST"
 
