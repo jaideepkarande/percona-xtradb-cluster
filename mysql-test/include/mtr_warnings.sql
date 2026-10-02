@@ -376,6 +376,7 @@ INSERT INTO global_suppressions VALUES
  ("wsrep_sst_receive_address is set to '127.0.0.1"),
  ("Failed to guess base node address"),
  ("Guessing address for incoming client connections failed"),
+ ("is not usable as address for incoming client connections"),
  ("option --wsrep-causal-reads is deprecated"),
  ("--wsrep-sync-wait=.* takes precedence over --wsrep-causal-reads=OFF"),
  ("--wsrep-causal-reads=ON takes precedence over --wsrep-sync-wait=.*"),

@@ -913,6 +913,17 @@ static std::string wsrep_server_incoming_address() {
         const char *fmt = (is_ipv6) ? "[%s]:%u" : "%s:%u";
         // if we are here, single_addr is not nullptr
         snprintf(inc_addr, inc_addr_max, fmt, single_addr, mysqld_port);
+      } else if (wsrep_provider && wsrep_provider[0] != '\0' &&
+                 strcmp(wsrep_provider, WSREP_NONE) != 0) {
+        /*
+          An empty incoming address is also how an arbitrator is recognized
+          in the cluster view, so make it visible.
+        */
+        WSREP_WARN(
+            "bind_address entry '%s' is not usable as address for incoming "
+            "client connections, leaving it empty. Try setting "
+            "wsrep_node_incoming_address explicitly.",
+            single_addr);
       }
     } else /* mysqld binds to 0.0.0.0, try taking IP from wsrep_node_address. */
     {
