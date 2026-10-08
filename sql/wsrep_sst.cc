@@ -1540,6 +1540,7 @@ static void *sst_donor_thread(void *a) {
   wsrep::gtid gtid(
       wsrep::id(ret_uuid.data, sizeof(ret_uuid.data)),
       wsrep::seqno(err ? wsrep::seqno::undefined() : wsrep::seqno(ret_seqno)));
+  CONDITIONAL_SYNC_POINT("wsrep_donor_before_sst_sent");
   Wsrep_server_state::instance().sst_sent(gtid, -err);
   proc.wait();
 
