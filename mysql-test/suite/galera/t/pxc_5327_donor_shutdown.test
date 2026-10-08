@@ -1,0 +1,128 @@
+#
+# PXC-5327: Donor's detached SST thread calls sst_sent() after provider close.
+#
+# Shutdown variant of galera.pxc_5327_donor_sst_sent_after_close: node_2 is
+# shut down while its SST donor thread is inside Galera's sst_sent(). The
+# shutdown must wait for the call to return before it closes and unloads the
+# provider (before the fix, Galera aborted with "Mutex destroy failed").
+#
+
+--source include/big_test.inc
+--source include/have_debug_sync.inc
+--source suite/galera/include/galera_have_debug_sync.inc
+--source include/galera_cluster.inc
+
+--connection node_2
+--let $node_2_log_error = $MYSQLTEST_VARDIR/log/mysqld.2.err
+
+--echo # Park node_2 donor thread inside Galera sst_sent()
+--let $galera_sync_point = sst_sent
+--source include/galera_set_sync_point.inc
+
+--echo # Restart node_1, it rejoins with IST from node_2
+--connection node_1
+--let $do_not_echo_parameters = 1
+--let $restart_parameters = "restart: --wsrep_cluster_address=gcomm://127.0.0.1:$NODE_GALERAPORT_2"
+--source include/restart_mysqld.inc
+--source include/galera_wait_ready.inc
+
+--connection node_2
+--source include/galera_wait_sync_point.inc
+--source include/galera_clear_sync_point.inc
+
+# Connections are not accepted once the shutdown has started, open the one
+# used to release the donor thread now
+--connect node_2b, 127.0.0.1, root, , test, $NODE_MYPORT_2
+SET SESSION wsrep_sync_wait = 0;
+
+--echo # Shut node_2 down while the donor thread is still in sst_sent()
+--connect node_2a, 127.0.0.1, root, , test, $NODE_MYPORT_2
+--exec echo "wait" > $MYSQLTEST_VARDIR/tmp/mysqld.2.expect
+--send SHUTDOWN
+
+--echo # The shutdown must wait for sst_sent()
+--connection node_2b
+--perl
+  my $f = "$ENV{'MYSQLTEST_VARDIR'}/log/mysqld.2.err";
+  my $found = 0;
+  for (1..60) {
+    open(my $fh, '<', $f) or die "cannot open $f: $!";
+    $found = 0;
+    while (my $line = <$fh>) {
+      # Only the lines of the current test run count
+      $found = 0 if $line =~ /^CURRENT_TEST: /;
+      $found = 1 if
+        $line =~ /Waiting for sst_sent\(\) to complete before disconnecting/;
+    }
+    close $fh;
+    last if $found;
+    sleep 1;
+  }
+  die "shutdown did not wait for sst_sent()\n" unless $found;
+EOF
+
+# The server is disconnecting (wsrep_cluster_status is non-Primary), Galera
+# itself is still the donor
+--let $local_state = query_get_value(SHOW STATUS LIKE 'wsrep_local_state_comment', Value, 1)
+--let $assert_text = Galera on node_2 must still be the donor
+--let $assert_cond = "$local_state" = "Donor/Desynced"
+--source include/assert.inc
+
+--echo # Let the donor thread continue
+# Releasing the donor thread lets the server close this connection, possibly
+# before the reply is read
+--disable_query_log
+--error 0,CR_SERVER_LOST,CR_SERVER_GONE_ERROR
+--eval SET GLOBAL wsrep_provider_options = 'signal=$galera_sync_point'
+--enable_query_log
+
+--source include/wait_until_disconnected.inc
+--disconnect node_2b
+
+--connection node_2a
+--error 0,CR_SERVER_LOST,CR_SERVER_GONE_ERROR
+--reap
+--disconnect node_2a
+
+--echo # The donor thread must not have reached a closed provider
+--connection node_1
+--let $assert_text = node_2 must not report sst_sent() on a closed provider
+--let $assert_file = $node_2_log_error
+--let $assert_select = sst sent called when not SST donor
+--let $assert_count = 0
+--source include/assert_grep.inc
+
+--let $assert_text = node_2 sst_sent() must not fail
+--let $assert_file = $node_2_log_error
+--let $assert_select = wsrep::sst_sent\(\) returned an error
+--let $assert_count = 0
+--source include/assert_grep.inc
+
+--echo # Restart node_2
+--connection node_2
+--let $_expect_file_name = $MYSQLTEST_VARDIR/tmp/mysqld.2.expect
+--let $restart_parameters = restart
+--source include/start_mysqld.inc
+--source include/galera_wait_ready.inc
+
+--let $wait_condition = SELECT VARIABLE_VALUE = 2 FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_cluster_size'
+--source include/wait_condition.inc
+--let $wait_condition = SELECT VARIABLE_VALUE = 'Synced' FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_state_comment'
+--source include/wait_condition.inc
+
+# The donor thread drops the SST user after sst_sent(), but the shutdown may
+# have closed its session first (it is not dropped on startup). Remove a
+# leftover locally so that the next tests start from the same state.
+--disable_query_log
+--disable_warnings
+SET SESSION wsrep_on = OFF;
+SET SESSION sql_log_bin = OFF;
+DROP USER IF EXISTS 'mysql.pxc.sst.user'@localhost;
+SET SESSION sql_log_bin = ON;
+SET SESSION wsrep_on = ON;
+--enable_warnings
+--enable_query_log
+
+--connection node_1
+--let $wait_condition = SELECT VARIABLE_VALUE = 'Synced' FROM performance_schema.global_status WHERE VARIABLE_NAME = 'wsrep_local_state_comment'
+--source include/wait_condition.inc

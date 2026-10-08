@@ -1,0 +1,19 @@
+# Park node_2 donor thread inside Galera sst_sent()
+SET GLOBAL wsrep_provider_options = 'dbug=d,sst_sent';
+# Restart node_1, it rejoins with IST from node_2
+# restart
+SET SESSION wsrep_on = 0;
+SET SESSION wsrep_on = 1;
+SET GLOBAL wsrep_provider_options = 'dbug=';
+SET SESSION wsrep_sync_wait = 0;
+# Stop replication on node_2 while the donor thread is still in sst_sent()
+SET GLOBAL wsrep_cluster_address = '';
+# The stop must wait for sst_sent() before closing the provider
+include/assert.inc [Galera on node_2 must still be the donor]
+# Let the donor thread continue
+# Reconnect node_2 to the cluster
+SET SESSION wsrep_on = OFF;
+SET SESSION wsrep_on = ON;
+# The donor thread must not have reached a closed provider
+include/assert_grep.inc [node_2 must not report sst_sent() on a closed provider]
+include/assert_grep.inc [node_2 sst_sent() must not fail]

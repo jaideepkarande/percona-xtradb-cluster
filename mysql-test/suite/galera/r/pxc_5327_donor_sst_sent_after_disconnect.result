@@ -1,0 +1,18 @@
+# Hold node_2 donor thread before it reports the end of the SST
+SET GLOBAL debug = '+d,syncpoint_wsrep_donor_before_sst_sent';
+# Restart node_1, it rejoins with IST from node_2
+# restart
+SET DEBUG_SYNC = 'now WAIT_FOR reached_wsrep_donor_before_sst_sent';
+SET GLOBAL debug = '-d,syncpoint_wsrep_donor_before_sst_sent';
+# Stop replication on node_2 while the donor thread is held
+SET GLOBAL wsrep_cluster_address = '';
+# Let the donor thread report the end of the SST
+SET DEBUG_SYNC = 'now SIGNAL continue_wsrep_donor_before_sst_sent';
+# The end of the SST is not passed to the closed provider
+# Wait for the donor thread to drop the SST user
+SET SESSION wsrep_on = OFF;
+SET SESSION wsrep_on = ON;
+# Reconnect node_2 to the cluster
+include/assert_grep.inc [node_2 must not report sst_sent() on a closed provider]
+include/assert_grep.inc [node_2 sst_sent() must not fail]
+SET DEBUG_SYNC = 'RESET';
