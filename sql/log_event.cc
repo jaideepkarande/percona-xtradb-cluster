@@ -6135,10 +6135,22 @@ int Intvar_log_event::do_apply_event(Relay_log_info const *rli) {
   const_cast<Relay_log_info *>(rli)->set_flag(Relay_log_info::IN_STMT);
 
 #ifdef WITH_WSREP
-  if (type == WSREP_SESSION_FLAGS_EVENT) {
-    thd->variables.sql_generate_invisible_primary_key =
-        (val & WSREP_SESSION_FLAG_GENERATE_INVISIBLE_PK) != 0;
-    return 0;
+  /*
+    These carry session state that the statement in the same write set depends
+    on, so they are applied here and never deferred.
+  */
+  switch (type) {
+    case BINLOG_CONTROL_EVENT:
+      if (val == 0) {
+        thd->variables.option_bits &= ~(OPTION_BIN_LOG);
+      }
+      return 0;
+    case WSREP_SESSION_FLAGS_EVENT:
+      thd->variables.sql_generate_invisible_primary_key =
+          (val & WSREP_SESSION_FLAG_GENERATE_INVISIBLE_PK) != 0;
+      return 0;
+    default:
+      break;
   }
 #endif /* WITH_WSREP */
 
@@ -6151,13 +6163,6 @@ int Intvar_log_event::do_apply_event(Relay_log_info const *rli) {
     case INSERT_ID_EVENT:
       thd->force_one_auto_inc_interval(val);
       break;
-#ifdef WITH_WSREP
-    case BINLOG_CONTROL_EVENT:
-      if (val == 0) {
-        thd->variables.option_bits &= ~(OPTION_BIN_LOG);
-      }
-      break;
-#endif /* WITH_WSREP */
   }
   return 0;
 }
